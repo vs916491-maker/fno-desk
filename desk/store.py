@@ -29,7 +29,11 @@ def _jsonable(v):
 class Supabase:
     def __init__(self, url: str, key: str):
         self.base = url.rstrip("/") + "/rest/v1"
-        self.h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        # Legacy service_role keys are JWTs and also go in the Authorization header;
+        # the newer "sb_secret_..." keys must be sent in the apikey header only.
+        self.h = {"apikey": key, "Content-Type": "application/json"}
+        if key.startswith("eyJ"):
+            self.h["Authorization"] = f"Bearer {key}"
 
     def _req(self, method, table, params=None, body=None, prefer=None):
         h = dict(self.h)
