@@ -126,6 +126,19 @@ async function deleteTrade(id) {
   const i = sampleTrades.findIndex((x) => x.id === id);
   if (i >= 0) sampleTrades.splice(i, 1);
 }
+async function swingEvents() {
+  if (!LIVE) return [];
+  const since = new Date(Date.now() - 8 * 86400000).toISOString().slice(0, 10);
+  const { data, error } = await sb.from("swing_events").select("ts,day,symbol,direction,strength,score,spot,signal")
+    .gte("day", since).order("ts", { ascending: false }).limit(60);
+  return error ? [] : data;
+}
+async function requestScan(kind) {
+  if (!LIVE) return { status: "preview" };
+  const { data, error } = await sb.from("scan_requests").insert({ kind }).select("status,created_at").single();
+  if (error) throw new Error(error.message);
+  return data;
+}
 async function swingHistory() {
   if (!LIVE) return [];
   const { data, error } = await sb.from("swing_history").select("day,symbol,direction,strength,score,spot")
@@ -372,6 +385,7 @@ async function viewStocks(app) {
 
   render(app, 
     pageHead("F&O stock screener", `Last scan ${when(d.ts)}, ${d.scanned} F&O stocks`),
+    scanBar(d.ts),
     h("p", { class: "intro" }, "A solid hourly candle closes across the 50 EMA, and futures show fresh build-up in the same direction. Entry at the next candle's open, stop beyond the breakout candle or recent swing (whichever is closer), target 1:2, exit on a close back across the 50 EMA or after 5 sessions."),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, "Top 5"),
       h("p", null, "Candle clarity 60% + OI change 40%, plus 10 points when the stock's sector leads in the trade's direction")),
@@ -381,6 +395,31 @@ async function viewStocks(app) {
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Other trend switches (${others.length})`), h("p", null, "50 EMA crosses that did not qualify")),
       others.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, otherTable)) : h("p", { class: "empty" }, "None.")),
     d.problems && d.problems.length ? h("p", { class: "note" }, `Data notes: ${d.problems.slice(0, 3).join("; ")}`) : null);
+}
+let scanPoll = null;
+function scanBar(lastTs) {
+  const msg = h("span", { class: "note", role: "status" },
+    "Scans automatically about 4 minutes after each hourly candle closes: 10:19, 11:19 … 15:19 and 15:34.");
+  const btn = h("button", { class: "btn primary", type: "button" }, "Run scanner now");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    msg.textContent = "Starting the scan…";
+    try {
+      const r = await requestScan("screener");
+      if (r.status === "preview") { msg.textContent = "Preview mode: scans run only on the live desk."; btn.disabled = false; return; }
+      if (r.status === "skipped") { msg.textContent = "A scan was started less than 3 minutes ago; its results will appear here shortly."; }
+      else if (r.status !== "sent") { msg.textContent = "The scan could not be started: the GitHub token is missing in Supabase."; btn.disabled = false; return; }
+      else msg.textContent = "Scan started. Results usually appear in 3–5 minutes; this page updates by itself.";
+      clearInterval(scanPoll);
+      const t0 = Date.now();
+      scanPoll = setInterval(async () => {
+        const d = await doc("stock_screener").catch(() => null);
+        if (d && d.ts !== lastTs) { clearInterval(scanPoll); route(); }
+        else if (Date.now() - t0 > 10 * 60000) { clearInterval(scanPoll); msg.textContent = "No new results after 10 minutes. Check the Actions tab on GitHub."; btn.disabled = false; }
+      }, 30000);
+    } catch (e) { msg.textContent = `Could not start the scan: ${e.message}`; btn.disabled = false; }
+  });
+  return h("div", { class: "filters" }, btn, msg);
 }
 function levelsBox(lv) {
   return h("div", { class: "lv" },
@@ -531,7 +570,7 @@ async function viewChain(app) {
 
 // ------------------------------------------------------------------ tab 4: suggested index trades
 async function viewSwing(app) {
-  const [d, hist] = await Promise.all([doc("swing_signals"), swingHistory()]);
+  const [d, hist, events] = await Promise.all([doc("swing_signals"), swingHistory(), swingEvents()]);
   if (!d) return render(app, pageHead("Suggested index trades", null), h("p", { class: "empty" }, "No snapshot yet."));
   const lots = d.lot_sizes || {};
   const took = (sig, t) => tradeDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
@@ -566,10 +605,22 @@ async function viewSwing(app) {
     h("thead", null, h("tr", null, ["Day", "Index", "Signal", "Score", "Spot at 3:15"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
     h("tbody", null, hist.map((r) => h("tr", { style: "cursor:default" }, h("td", { class: "l" }, dayLabel(r.day)), h("td", { class: "l" }, r.symbol),
       h("td", { class: "l" }, sideTag(r.direction), r.strength ? ` ${r.strength}` : ""), h("td", null, isNum(r.score) ? r.score : "–"), h("td", null, fmt(r.spot)))))) : null;
+  const vol = (e) => ((e.signal && e.signal.trades) || []).find((t) => t.method === "Volatility") || ((e.signal && e.signal.trades) || [])[0];
+  const setupTable = events.length ? h("table", null,
+    h("thead", null, h("tr", null, ["Formed at", "Index", "Setup", "Score", "Spot", "Futures entry", "Stop", "Target"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
+    h("tbody", null, events.map((e) => {
+      const t = vol(e);
+      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(e.ts)), h("td", { class: "l name" }, e.symbol),
+        h("td", { class: "l" }, e.direction === "ENDED" ? h("span", { class: "muted" }, "Setup ended") : [sideTag(e.direction), e.strength ? ` ${e.strength}` : ""]),
+        h("td", null, isNum(e.score) ? `${e.score > 0 ? "+" : ""}${e.score}` : "–"), h("td", null, fmt(e.spot)),
+        h("td", null, t ? fmt(t.entry) : "–"), h("td", null, t ? fmt(t.stop) : "–"), h("td", null, t ? fmt(t.target) : "–"));
+    }))) : null;
   render(app, 
-    pageHead("Suggested index trades", `Swing up to 5 sessions, monthly chains, as of ${when(d.ts)}`),
-    h("p", { class: "intro" }, "Score = OI shift (ATM ±2, last 60 min) + PCR level + PCR slope + change-in-OI PCR + futures build-up, each −1 to +1. Long at +2.5 or more, short at −2.5 or less. Each signal shows a futures trade two ways: OI walls (stop and target at the put and call walls, needs R/R 1.5) and Volatility (5-day expected move from ATM IV: stop 0.6×, target 1.5× the stop, skipped if a big OI wall blocks the target). The day's official signal is saved at 3:15 pm."),
+    pageHead("Suggested index trades", `Live, updated every 15 minutes; last update ${when(d.ts)}`),
+    h("p", { class: "intro" }, "Score = OI shift (ATM ±2, last 60 min) + PCR level + PCR slope + change-in-OI PCR + futures build-up, each −1 to +1. Long at +2.5 or more, short at −2.5 or less. Each signal shows a futures trade two ways: OI walls (stop and target at the put and call walls, needs R/R 1.5) and Volatility (5-day expected move from ATM IV: stop 0.6×, target 1.5× the stop, skipped if a big OI wall blocks the target). A setup shows here, and in the log below, at the first 15-minute update after its score crosses ±2.5. The day's closing signal is also saved at 3:15 pm."),
     cards,
+    h("section", null, h("div", { class: "section-head" }, h("h2", null, "Setups as they formed"), h("p", null, "Last 8 days; levels use the volatility method at the time")),
+      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing setup has formed yet.")),
     histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
 }
 
@@ -589,7 +640,31 @@ async function viewTrades(app) {
     stat("Win rate", pctVals.length ? `${Math.round((wins.length / pctVals.length) * 100)}%` : "–", `${wins.length} won, ${losses.length} lost`),
     stat("Average per trade", pctVals.length ? pct(pctVals.reduce((a, b) => a + b, 0) / pctVals.length) : "–", "Net % after costs", sign(pctVals.reduce((a, b) => a + b, 0))),
     stat("Profit factor", isNum(pf) ? pf.toFixed(2) : "–", "Total % won ÷ total % lost"),
+    stat("Net P&L in %", pctVals.length ? pct(pctVals.reduce((a, b) => a + b, 0)) : "–", "Sum of net % of closed trades", sign(pctVals.reduce((a, b) => a + b, 0))),
     stat("Net P&L in ₹", inrVals.length ? inr(inrVals.reduce((a, b) => a + b, 0)) : "–", "Index futures and stocks with quantity", sign(inrVals.reduce((a, b) => a + b, 0))));
+
+  // month-wise: by the month a trade was closed (entry month if no exit time was recorded)
+  const months = {};
+  for (const t of closed) {
+    const m = String(t.exit_time || t.entry_time || "").slice(0, 7);
+    if (!m) continue;
+    const g = (months[m] ||= { n: 0, w: 0, pcts: [], inr: 0, hasInr: false });
+    g.n += 1;
+    if (isNum(t.net_pct_after_cost)) { g.pcts.push(t.net_pct_after_cost); if (t.net_pct_after_cost > 0) g.w += 1; }
+    if (isNum(t.pnl_inr)) { g.inr += t.pnl_inr; g.hasInr = true; }
+  }
+  const monthRows = Object.keys(months).sort().reverse().map((m) => {
+    const g = months[m], sum = g.pcts.reduce((a, b) => a + b, 0);
+    const won = g.pcts.filter((v) => v > 0).reduce((a, b) => a + b, 0), lost = Math.abs(g.pcts.filter((v) => v <= 0).reduce((a, b) => a + b, 0));
+    const label = new Date(`${m}-01T00:00:00`).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    return h("tr", { style: "cursor:default" }, h("td", { class: "l name" }, label), h("td", null, g.n),
+      h("td", null, `${g.w} / ${g.n - g.w}`), h("td", null, g.pcts.length ? `${Math.round((g.w / g.pcts.length) * 100)}%` : "–"),
+      h("td", { class: sign(sum) }, pct(sum)), h("td", { class: sign(sum) }, g.pcts.length ? pct(sum / g.pcts.length) : "–"),
+      h("td", null, lost ? (won / lost).toFixed(2) : g.pcts.length ? "∞" : "–"), h("td", { class: sign(g.inr) }, g.hasInr ? inr(g.inr) : "–"));
+  });
+  const monthTable = h("table", null,
+    h("thead", null, h("tr", null, ["Month", "Trades", "Won / lost", "Win rate", "Net %", "Avg per trade", "Profit factor", "Net ₹"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))),
+    h("tbody", null, monthRows));
 
   const row = (t, isOpen) => h("tr", { style: "cursor:default" },
     h("td", { class: "l" }, when(t.entry_time)),
@@ -617,6 +692,8 @@ async function viewTrades(app) {
       h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
     h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions."),
     stats,
+    monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed")),
+      h("div", { class: "panel" }, h("div", { class: "table-scroll" }, monthTable))) : null,
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Open (${open.length})`)),
       open.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, table(open, true))) : h("p", { class: "empty" }, "No open trades.")),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Closed (${closed.length})`)),

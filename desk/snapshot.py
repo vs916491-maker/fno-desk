@@ -66,6 +66,9 @@ def main() -> int:
     ts = t.strftime("%Y-%m-%dT%H:%M:00")
     today = t.date()
     db = store.connect()
+    if not args.force and recent_run(db, "index_dashboard", t, minutes=7):
+        print("A snapshot was taken in the last 7 minutes (the other scheduler got there first).")
+        return 0
     nse, problems = NSE(), []
     try:
         bse = BSE()
@@ -219,6 +222,13 @@ def main() -> int:
                                  "columns": ["strike", "ce_oi", "ce_coi", "ce_ltp", "ce_iv", "ce_vol",
                                              "pe_oi", "pe_coi", "pe_ltp", "pe_iv", "pe_vol"]})
 
+    # log swing setups the moment they form (and when they drop back to no trade)
+    try:
+        events = log_setups(db, signals, ts, day_s)
+    except Exception as exc:  # noqa: BLE001
+        events = 0
+        problems.append(f"setup log: {exc}"[:200])
+
     # the day's official swing signal at/after 15:15
     if t.strftime("%H:%M") >= config.SIGNAL_SAVE_TIME:
         try:
@@ -254,7 +264,7 @@ def main() -> int:
     summary = (f"{ts}: chains {len(chains)}, chain rows {len(chain_store)}, futures {len(fut_rows)}, "
                f"signals " + ", ".join(f"{s['symbol']} {s.get('direction')} {s.get('score')}" for s in signals)
                + f"; trend {trend['zone'] if trend else '-'} {trend['score'] if trend else ''}; "
-               f"warnings {len(warnings)}; trades closed {closed}; problems {len(problems)}\n"
+               f"warnings {len(warnings)}; setups logged {events}; trades closed {closed}; problems {len(problems)}\n"
                + "\n".join(f"{c['symbol']}: spot {c['spot']} ({c.get('pchange')}%), PCR {c['pcr']} {c['pcr_kind']} "
                            f"{c['expiry']}, S {c['support']} R {c['resistance']} MP {c['max_pain']} IV {c['atm_iv']}, "
                            f"fut {(c['fut'] or {}).get('state')} {(c['fut'] or {}).get('fut_ltp')}"
@@ -271,6 +281,46 @@ def main() -> int:
         msg = summary + ("\n" + "\n".join(problems) if problems else "")
         print("::notice title=Index snapshot::" + msg.replace("%", "%25").replace("\n", "%0A"))
     return 0
+
+
+def recent_run(db, key: str, now: datetime, minutes: int) -> bool:
+    """True if the published document is younger than `minutes` (two schedulers,
+    GitHub's and Supabase's, may both start a run; the second one stops here)."""
+    try:
+        rows = db.select("docs", {"key": f"eq.{key}", "select": "data->>ts"})
+    except Exception:  # noqa: BLE001
+        return False
+    if not rows:
+        return False
+    ts = next(iter(rows[0].values()), None)
+    try:
+        last = datetime.fromisoformat(str(ts)[:16])
+    except (TypeError, ValueError):
+        return False
+    return timedelta(0) <= now - last < timedelta(minutes=minutes)
+
+
+def log_setups(db, signals: list[dict], ts: str, day_s: str) -> int:
+    """Insert a swing_events row when a Long/Short setup forms or flips, and an
+    ENDED row when it drops back to no trade, so the site shows when each formed."""
+    rows = db.select("swing_events", {"day": f"eq.{day_s}", "order": "ts"})
+    last = {}
+    for r in rows:
+        last[r["symbol"]] = r["direction"]
+    new = []
+    for sig in signals:
+        d, prev = sig.get("direction"), last.get(sig["symbol"])
+        if d in ("LONG", "SHORT") and prev != d:
+            new.append({"ts": ts, "day": day_s, "symbol": sig["symbol"], "direction": d,
+                        "strength": sig.get("strength"), "score": sig.get("score"), "spot": sig.get("spot"),
+                        "signal": {"trades": sig.get("trades"), "levels": sig.get("levels"),
+                                   "expiry": sig.get("expiry")}})
+        elif d == "NO TRADE" and prev in ("LONG", "SHORT"):
+            new.append({"ts": ts, "day": day_s, "symbol": sig["symbol"], "direction": "ENDED",
+                        "strength": None, "score": sig.get("score"), "spot": sig.get("spot"), "signal": None})
+    if new:
+        db.insert("swing_events", new)
+    return len(new)
 
 
 _LOTS: dict | None = None

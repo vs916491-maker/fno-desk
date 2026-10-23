@@ -134,6 +134,22 @@ def top5_score(idea: dict, sectors: dict) -> dict:
             "sector": sector, "sector_quadrant": sv.get(f"{key}_q"), "boost": boost}
 
 
+def last_candle_end(now: datetime) -> datetime:
+    ends = [now.replace(hour=h, minute=15, second=0, microsecond=0) for h in range(10, 16)]
+    ends.append(now.replace(hour=15, minute=30, second=0, microsecond=0))
+    done = [e for e in ends if e <= now]
+    return done[-1] if done else now.replace(hour=0, minute=0)
+
+
+def already_scanned(db, now: datetime) -> bool:
+    try:
+        rows = db.select("docs", {"key": "eq.stock_screener", "select": "data->>ts"})
+        ts = next(iter(rows[0].values())) if rows else None
+        return bool(ts) and datetime.fromisoformat(str(ts)[:16]) >= last_candle_end(now)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true")
@@ -143,6 +159,9 @@ def main() -> int:
         print(f"{now:%a %H:%M} IST: outside scan hours.")
         return 0
     db = store.connect()
+    if not args.force and already_scanned(db, now):
+        print("This candle has already been scanned (the other scheduler got there first).")
+        return 0
     nse = NSE()
     problems: list[str] = []
     lots = nse.fno_lots()
