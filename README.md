@@ -33,3 +33,16 @@ GitHub's schedules can start a few minutes late. Exchange feeds are unofficial w
 Without step 4 the website runs in preview mode on `site/sample/`.
 
 *For personal analysis only. Not investment advice.*
+
+## Renewing the GitHub token (once a year)
+
+The "Run scanner" button and the on-time schedules start GitHub jobs from
+Supabase with a fine-grained token (`fno-desk-supabase`, Actions: read and
+write on this repo). GitHub emails a reminder about 7 days before it expires.
+
+1. GitHub → Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → `fno-desk-supabase` → **Regenerate token** → copy it.
+2. Supabase → SQL Editor → run (with the new token inside the quotes):
+   `select vault.update_secret((select id from vault.secrets where name = 'github_token'), 'NEW_TOKEN');`
+3. Test: `select public.dispatch_workflow('stock-screener.yml', true);`, then
+   check `select status_code from net._http_response order by created desc limit 1;` shows 204.
