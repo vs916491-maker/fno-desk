@@ -1,0 +1,40 @@
+name: Index snapshot (every 15 min)
+
+on:
+  schedule:
+    # every 15 minutes, 09:15-15:30 IST (03:45-10:00 UTC), Monday-Friday
+    - cron: "45,59 3 * * 1-5"
+    - cron: "*/15 4-9 * * 1-5"
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even outside market hours"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: index-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Take index snapshot
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then python -m desk.snapshot --force; else python -m desk.snapshot; fi
