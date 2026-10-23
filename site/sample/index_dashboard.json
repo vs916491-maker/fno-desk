@@ -1,0 +1,285 @@
+{
+ "ts": "2026-10-23T13:57:00",
+ "cards": [
+  {
+   "symbol": "NIFTY",
+   "spot": 22539.8,
+   "change": -150.1,
+   "pchange": -0.66,
+   "pcr": 0.809,
+   "pcr_kind": "weekly",
+   "expiry": "2026-10-27",
+   "support": 22500.0,
+   "resistance": 23000.0,
+   "max_pain": 22700.0,
+   "atm_iv": 16.34,
+   "fut": {
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 22663.7,
+    "fut_pct": -0.6043,
+    "oi_total": 331387.0,
+    "coi_total": 29240.0,
+    "source": "NSE day change, all months",
+    "state": "Short build-up"
+   },
+   "signal": "NO TRADE",
+   "signal_strength": "",
+   "signal_score": 0.0
+  },
+  {
+   "symbol": "SENSEX",
+   "spot": 72956.94,
+   "change": -184.16,
+   "pchange": -0.2514,
+   "pcr": 0.95,
+   "pcr_kind": "weekly",
+   "expiry": "2026-10-29",
+   "support": 71000.0,
+   "resistance": 73500.0,
+   "max_pain": 73300.0,
+   "atm_iv": 17.4624,
+   "fut": null,
+   "signal": "NO TRADE",
+   "signal_strength": "",
+   "signal_score": 1.5
+  },
+  {
+   "symbol": "BANKNIFTY",
+   "spot": 54271.75,
+   "change": -658.2,
+   "pchange": -1.2,
+   "pcr": 0.866,
+   "pcr_kind": "monthly",
+   "expiry": "2026-11-23",
+   "support": 52000.0,
+   "resistance": 57000.0,
+   "max_pain": 56300.0,
+   "atm_iv": 16.435,
+   "fut": {
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 54682.6,
+    "fut_pct": -1.0409,
+    "oi_total": 97993.0,
+    "coi_total": 13760.0,
+    "source": "NSE day change, all months",
+    "state": "Short build-up"
+   },
+   "signal": "NO TRADE",
+   "signal_strength": "",
+   "signal_score": -1.5
+  },
+  {
+   "symbol": "FINNIFTY",
+   "spot": 24386.6,
+   "change": -258.75,
+   "pchange": -1.05,
+   "pcr": 0.588,
+   "pcr_kind": "monthly",
+   "expiry": "2026-11-23",
+   "support": 24200.0,
+   "resistance": 25000.0,
+   "max_pain": 24500.0,
+   "atm_iv": 15.82,
+   "fut": {
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 24672.5,
+    "fut_pct": -0.8949,
+    "oi_total": 448.0,
+    "coi_total": 18.0,
+    "source": "NSE day change, all months",
+    "state": "Short build-up"
+   },
+   "signal": "NO TRADE",
+   "signal_strength": "",
+   "signal_score": -0.5
+  },
+  {
+   "symbol": "MIDCPNIFTY",
+   "spot": 12996.7,
+   "change": -315.3,
+   "pchange": -2.37,
+   "pcr": 1.093,
+   "pcr_kind": "monthly",
+   "expiry": "2026-11-23",
+   "support": 12000.0,
+   "resistance": 14000.0,
+   "max_pain": 13500.0,
+   "atm_iv": 21.995,
+   "fut": {
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 13046.85,
+    "fut_pct": -1.9837,
+    "oi_total": 27612.0,
+    "coi_total": 5862.0,
+    "source": "NSE day change, all months",
+    "state": "Short build-up"
+   },
+   "signal": "NO TRADE",
+   "signal_strength": "",
+   "signal_score": -2.0
+  }
+ ],
+ "vix": {
+  "last": 16.79,
+  "change": 1.03,
+  "pchange": 6.53,
+  "prev_close": 15.76,
+  "open": 15.76,
+  "high": 17.09,
+  "low": 15.27
+ },
+ "trend": {
+  "score": -1.5,
+  "zone": "Mild bearish",
+  "factors": [
+   {
+    "factor": "OI shift, ATM \u00b12 (day's change)",
+    "reading": "Put +158,841 vs Call +254,934",
+    "score": -0.5,
+    "note": "Call writing leads (no put unwinding yet)"
+   },
+   {
+    "factor": "PCR (total OI)",
+    "reading": "0.81",
+    "score": 0.0,
+    "note": "Transition zone, no bias"
+   },
+   {
+    "factor": "PCR intraday slope",
+    "reading": "\u2013",
+    "score": 0.0,
+    "note": "Needs 4+ snapshots"
+   },
+   {
+    "factor": "Change-in-OI PCR (day)",
+    "reading": "0.76",
+    "score": -1.0,
+    "note": "Fresh calls outpace puts"
+   },
+   {
+    "factor": "Futures build-up, last 60 min",
+    "reading": "\u2013",
+    "score": 0.0,
+    "note": "Needs two snapshots today"
+   }
+  ],
+  "ts": "2026-10-23 13:57:00"
+ },
+ "warnings": [],
+ "charts": {
+  "NIFTY": {
+   "pcr": {
+    "monthly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 1.0813,
+      "expiry": "2026-11-23",
+      "combined": false
+     }
+    ],
+    "weekly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 0.8094,
+      "expiry": "2026-10-27",
+      "combined": false
+     }
+    ]
+   },
+   "futures_oi": [
+    {
+     "ts": "2026-10-23 13:57:00",
+     "oi": 331387.0,
+     "near_ltp": 22580.4,
+     "change": null,
+     "rolled": false
+    }
+   ]
+  },
+  "SENSEX": {
+   "pcr": {
+    "monthly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 1.2672,
+      "expiry": "2026-11-26",
+      "combined": false
+     }
+    ],
+    "weekly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 0.9503,
+      "expiry": "2026-10-29",
+      "combined": false
+     }
+    ]
+   },
+   "futures_oi": []
+  },
+  "BANKNIFTY": {
+   "pcr": {
+    "monthly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 0.8664,
+      "expiry": "2026-11-23",
+      "combined": false
+     }
+    ]
+   },
+   "futures_oi": [
+    {
+     "ts": "2026-10-23 13:57:00",
+     "oi": 97993.0,
+     "near_ltp": 54401.0,
+     "change": null,
+     "rolled": false
+    }
+   ]
+  },
+  "FINNIFTY": {
+   "pcr": {
+    "monthly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 0.5882,
+      "expiry": "2026-11-23",
+      "combined": false
+     }
+    ]
+   },
+   "futures_oi": [
+    {
+     "ts": "2026-10-23 13:57:00",
+     "oi": 448.0,
+     "near_ltp": 24472.4,
+     "change": null,
+     "rolled": false
+    }
+   ]
+  },
+  "MIDCPNIFTY": {
+   "pcr": {
+    "monthly": [
+     {
+      "ts": "2026-10-23 13:15:00",
+      "pcr": 1.0928,
+      "expiry": "2026-11-23",
+      "combined": false
+     }
+    ]
+   },
+   "futures_oi": [
+    {
+     "ts": "2026-10-23 13:57:00",
+     "oi": 27612.0,
+     "near_ltp": 13033.0,
+     "change": null,
+     "rolled": false
+    }
+   ]
+  }
+ },
+ "problems": []
+}

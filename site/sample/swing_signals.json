@@ -1,0 +1,454 @@
+{
+ "ts": "2026-10-23T13:57:00",
+ "signals": [
+  {
+   "symbol": "NIFTY",
+   "direction": "NO TRADE",
+   "score": 0.0,
+   "factors": [
+    {
+     "factor": "OI shift, ATM \u00b12 (day's change)",
+     "reading": "Put +12,728 vs Call +13,702",
+     "score": 0.0,
+     "note": "No clear shift"
+    },
+    {
+     "factor": "PCR (total OI)",
+     "reading": "1.08",
+     "score": 0.0,
+     "note": "Neutral / range-bound zone"
+    },
+    {
+     "factor": "PCR intraday slope",
+     "reading": "\u2013",
+     "score": 0.0,
+     "note": "Needs 4+ snapshots"
+    },
+    {
+     "factor": "Change-in-OI PCR (day)",
+     "reading": "1.28",
+     "score": 1.0,
+     "note": "Fresh puts outpace calls"
+    },
+    {
+     "factor": "Futures OI build-up",
+     "reading": "Price -0.60%, OI +29,240",
+     "score": -1.0,
+     "note": "Short build-up"
+    }
+   ],
+   "levels": {
+    "pcr": 1.081,
+    "step": 50.0,
+    "resistance": 23000.0,
+    "support": 22000.0,
+    "max_pain": 23000.0,
+    "atm_iv": 16.025,
+    "atm": 22550.0,
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 22663.7,
+    "fut_pct": -0.6043,
+    "state": "Short build-up",
+    "interpretation": "Futures show short build-up; option flow is neutral."
+   },
+   "expiry": "2026-11-23",
+   "warnings": [
+    "Single snapshot today; OI shift uses the day's change in OI."
+   ],
+   "trades": [],
+   "ts": "2026-10-23 13:57:00",
+   "spot": 22534.95,
+   "threshold": 2.5,
+   "strength": "",
+   "dte": 31,
+   "oi_detail": [
+    {
+     "strike": 22450.0,
+     "call_change": 168.0,
+     "put_change": 91.0
+    },
+    {
+     "strike": 22500.0,
+     "call_change": 7137.0,
+     "put_change": 7405.0
+    },
+    {
+     "strike": 22550.0,
+     "call_change": 147.0,
+     "put_change": 129.0
+    },
+    {
+     "strike": 22600.0,
+     "call_change": 4044.0,
+     "put_change": 2774.0
+    },
+    {
+     "strike": 22650.0,
+     "call_change": 2206.0,
+     "put_change": 2329.0
+    }
+   ],
+   "slope": null
+  },
+  {
+   "symbol": "SENSEX",
+   "direction": "NO TRADE",
+   "score": 1.5,
+   "factors": [
+    {
+     "factor": "OI shift, ATM \u00b12 (day's change)",
+     "reading": "Put +43 vs Call +15",
+     "score": 0.5,
+     "note": "Put writing leads (no call unwinding yet)"
+    },
+    {
+     "factor": "PCR (total OI)",
+     "reading": "1.27",
+     "score": 1.0,
+     "note": "Above 1.20: bullish"
+    },
+    {
+     "factor": "PCR intraday slope",
+     "reading": "\u2013",
+     "score": 0.0,
+     "note": "Needs 4+ snapshots"
+    },
+    {
+     "factor": "Change-in-OI PCR (day)",
+     "reading": "1.15",
+     "score": 0.0,
+     "note": "Balanced additions"
+    },
+    {
+     "factor": "Futures OI build-up",
+     "reading": "No data",
+     "score": 0.0,
+     "note": "No futures feed, factor skipped"
+    }
+   ],
+   "levels": {
+    "pcr": 1.267,
+    "step": 100.0,
+    "resistance": 74000.0,
+    "support": 70000.0,
+    "max_pain": 74000.0,
+    "atm_iv": 16.0187,
+    "atm": 73000.0,
+    "interpretation": "Futures give no confirmation; the call rests on option data alone."
+   },
+   "expiry": "2026-11-26",
+   "warnings": [
+    "Single snapshot today; OI shift uses the day's change in OI."
+   ],
+   "trades": [],
+   "ts": "2026-10-23 13:57:00",
+   "spot": 72956.94,
+   "threshold": 2.5,
+   "strength": "",
+   "dte": 34,
+   "oi_detail": [
+    {
+     "strike": 72800.0,
+     "call_change": -1.0,
+     "put_change": 1.0
+    },
+    {
+     "strike": 72900.0,
+     "call_change": 0.0,
+     "put_change": 6.0
+    },
+    {
+     "strike": 73000.0,
+     "call_change": 11.0,
+     "put_change": 24.0
+    },
+    {
+     "strike": 73100.0,
+     "call_change": 1.0,
+     "put_change": 13.0
+    },
+    {
+     "strike": 73200.0,
+     "call_change": 4.0,
+     "put_change": -1.0
+    }
+   ],
+   "slope": null
+  },
+  {
+   "symbol": "BANKNIFTY",
+   "direction": "NO TRADE",
+   "score": -1.5,
+   "factors": [
+    {
+     "factor": "OI shift, ATM \u00b12 (day's change)",
+     "reading": "Put +3,270 vs Call +5,256",
+     "score": -0.5,
+     "note": "Call writing leads (no put unwinding yet)"
+    },
+    {
+     "factor": "PCR (total OI)",
+     "reading": "0.87",
+     "score": 0.0,
+     "note": "Neutral / range-bound zone"
+    },
+    {
+     "factor": "PCR intraday slope",
+     "reading": "\u2013",
+     "score": 0.0,
+     "note": "Needs 4+ snapshots"
+    },
+    {
+     "factor": "Change-in-OI PCR (day)",
+     "reading": "0.84",
+     "score": 0.0,
+     "note": "Balanced additions"
+    },
+    {
+     "factor": "Futures OI build-up",
+     "reading": "Price -1.04%, OI +13,760",
+     "score": -1.0,
+     "note": "Short build-up"
+    }
+   ],
+   "levels": {
+    "pcr": 0.866,
+    "step": 100.0,
+    "resistance": 57000.0,
+    "support": 52000.0,
+    "max_pain": 56300.0,
+    "atm_iv": 16.435,
+    "atm": 54300.0,
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 54682.6,
+    "fut_pct": -1.0409,
+    "state": "Short build-up",
+    "interpretation": "Fresh shorts in futures plus call writing: strongest bearish alignment."
+   },
+   "expiry": "2026-11-23",
+   "warnings": [
+    "Single snapshot today; OI shift uses the day's change in OI."
+   ],
+   "trades": [],
+   "ts": "2026-10-23 13:57:00",
+   "spot": 54271.75,
+   "threshold": 2.5,
+   "strength": "",
+   "dte": 31,
+   "oi_detail": [
+    {
+     "strike": 54100.0,
+     "call_change": 325.0,
+     "put_change": 210.0
+    },
+    {
+     "strike": 54200.0,
+     "call_change": 562.0,
+     "put_change": 275.0
+    },
+    {
+     "strike": 54300.0,
+     "call_change": 578.0,
+     "put_change": 315.0
+    },
+    {
+     "strike": 54400.0,
+     "call_change": 546.0,
+     "put_change": 59.0
+    },
+    {
+     "strike": 54500.0,
+     "call_change": 3245.0,
+     "put_change": 2411.0
+    }
+   ],
+   "slope": null
+  },
+  {
+   "symbol": "FINNIFTY",
+   "direction": "NO TRADE",
+   "score": -0.5,
+   "factors": [
+    {
+     "factor": "OI shift, ATM \u00b12 (day's change)",
+     "reading": "Put +15 vs Call +0",
+     "score": 0.5,
+     "note": "Put writing leads (no call unwinding yet)"
+    },
+    {
+     "factor": "PCR (total OI)",
+     "reading": "0.59",
+     "score": -1.0,
+     "note": "Below 0.80: bearish"
+    },
+    {
+     "factor": "PCR intraday slope",
+     "reading": "\u2013",
+     "score": 0.0,
+     "note": "Needs 4+ snapshots"
+    },
+    {
+     "factor": "Change-in-OI PCR (day)",
+     "reading": "Puts added, calls cut",
+     "score": 1.0,
+     "note": "Bullish"
+    },
+    {
+     "factor": "Futures OI build-up",
+     "reading": "Price -0.89%, OI +18",
+     "score": -1.0,
+     "note": "Short build-up"
+    }
+   ],
+   "levels": {
+    "pcr": 0.588,
+    "step": 100.0,
+    "resistance": 25000.0,
+    "support": 24200.0,
+    "max_pain": 24500.0,
+    "atm_iv": 15.82,
+    "atm": 24400.0,
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 24672.5,
+    "fut_pct": -0.8949,
+    "state": "Short build-up",
+    "interpretation": "Futures shorts are adding against put writers defending 24,200; conflicting, size down."
+   },
+   "expiry": "2026-11-23",
+   "warnings": [
+    "Single snapshot today; OI shift uses the day's change in OI.",
+    "OI shift and PCR point in opposite directions."
+   ],
+   "trades": [],
+   "ts": "2026-10-23 13:57:00",
+   "spot": 24386.6,
+   "threshold": 2.5,
+   "strength": "",
+   "dte": 31,
+   "oi_detail": [
+    {
+     "strike": 24200.0,
+     "call_change": 0.0,
+     "put_change": 13.0
+    },
+    {
+     "strike": 24300.0,
+     "call_change": 0.0,
+     "put_change": 0.0
+    },
+    {
+     "strike": 24400.0,
+     "call_change": 0.0,
+     "put_change": 0.0
+    },
+    {
+     "strike": 24500.0,
+     "call_change": 0.0,
+     "put_change": 1.0
+    },
+    {
+     "strike": 24600.0,
+     "call_change": 0.0,
+     "put_change": 1.0
+    }
+   ],
+   "slope": null
+  },
+  {
+   "symbol": "MIDCPNIFTY",
+   "direction": "NO TRADE",
+   "score": -2.0,
+   "factors": [
+    {
+     "factor": "OI shift, ATM \u00b12 (day's change)",
+     "reading": "Put +679 vs Call +690",
+     "score": 0.0,
+     "note": "No clear shift"
+    },
+    {
+     "factor": "PCR (total OI)",
+     "reading": "1.09",
+     "score": 0.0,
+     "note": "Neutral / range-bound zone"
+    },
+    {
+     "factor": "PCR intraday slope",
+     "reading": "\u2013",
+     "score": 0.0,
+     "note": "Needs 4+ snapshots"
+    },
+    {
+     "factor": "Change-in-OI PCR (day)",
+     "reading": "0.63",
+     "score": -1.0,
+     "note": "Fresh calls outpace puts"
+    },
+    {
+     "factor": "Futures OI build-up",
+     "reading": "Price -1.98%, OI +5,862",
+     "score": -1.0,
+     "note": "Short build-up"
+    }
+   ],
+   "levels": {
+    "pcr": 1.093,
+    "step": 25.0,
+    "resistance": 14000.0,
+    "support": 12000.0,
+    "max_pain": 13500.0,
+    "atm_iv": 21.995,
+    "atm": 13000.0,
+    "fut_expiry": "2026-11-23",
+    "fut_ltp": 13046.85,
+    "fut_pct": -1.9837,
+    "state": "Short build-up",
+    "interpretation": "Futures show short build-up; option flow is neutral."
+   },
+   "expiry": "2026-11-23",
+   "warnings": [
+    "Single snapshot today; OI shift uses the day's change in OI."
+   ],
+   "trades": [],
+   "ts": "2026-10-23 13:57:00",
+   "spot": 12996.7,
+   "threshold": 2.5,
+   "strength": "",
+   "dte": 31,
+   "oi_detail": [
+    {
+     "strike": 12950.0,
+     "call_change": 9.0,
+     "put_change": 22.0
+    },
+    {
+     "strike": 12975.0,
+     "call_change": 19.0,
+     "put_change": 21.0
+    },
+    {
+     "strike": 13000.0,
+     "call_change": 614.0,
+     "put_change": 615.0
+    },
+    {
+     "strike": 13025.0,
+     "call_change": 18.0,
+     "put_change": 5.0
+    },
+    {
+     "strike": 13050.0,
+     "call_change": 30.0,
+     "put_change": 16.0
+    }
+   ],
+   "slope": null
+  }
+ ],
+ "lot_sizes": {
+  "NIFTY": 65,
+  "SENSEX": 20,
+  "BANKNIFTY": 30,
+  "FINNIFTY": 60,
+  "MIDCPNIFTY": 120
+ }
+}
