@@ -25,6 +25,7 @@ from __future__ import annotations
 import sys
 import time
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -98,7 +99,7 @@ def check(tr: dict, df: pd.DataFrame, today: date) -> dict:
 
 def main() -> int:
     db = store.connect()
-    today = datetime.now(config.TZ).date()
+    today = datetime.now(ZoneInfo(config.TZ)).date()
     try:
         trades = db.select("cash_trades", {"status": "eq.open"})
     except Exception as exc:  # noqa: BLE001
