@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>F&amp;O Desk</title>
+  <meta name="description" content="F&O stock screener, index option-chain analysis, swing index trades and trade journal.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2315202b'/%3E%3Crect x='7' y='16' width='4' height='9' rx='1' fill='%23d03b3b'/%3E%3Crect x='14' y='9' width='4' height='16' rx='1' fill='%23ffffff'/%3E%3Crect x='21' y='12' width='4' height='13' rx='1' fill='%231baf7a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    try { var t = localStorage.getItem("desk-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="brand">
+        <strong>F&amp;O Desk</strong>
+        <span id="status">Stocks and index derivatives</span>
+      </div>
+      <div class="who" id="who"></div>
+      <button class="theme-btn" id="theme" type="button" aria-label="Switch light or dark theme">Theme</button>
+    </div>
+  </header>
+  <nav class="tabs" aria-label="Sections">
+    <div class="wrap" style="display:flex;gap:2px">
+      <a href="#/stocks" data-tab="stocks">F&amp;O stock screener</a>
+      <a href="#/index" data-tab="index">F&amp;O index analysis</a>
+      <a href="#/chain" data-tab="chain">Option chain</a>
+      <a href="#/swing" data-tab="swing">Suggested index trades</a>
+      <a href="#/trades" data-tab="trades">My trades</a>
+    </div>
+  </nav>
+
+  <main class="wrap" id="app"><p class="loading">Loading…</p></main>
+
+  <footer class="wrap">
+    <p>Data from NSE and BSE public website feeds and Yahoo hourly candles, collected by scheduled jobs: index snapshots every 15 minutes and the stock scan after each hourly candle, during market hours.</p>
+    <p>For personal analysis only. Signals are rule-based screening results, not investment advice.</p>
+    <p><a href="https://vs916491-maker.github.io/Nifty-sector-strength/">Sector Strength</a></p>
+  </footer>
+
+  <dialog id="dlg"></dialog>
+  <script src="app.js"></script>
+</body>
+</html>
