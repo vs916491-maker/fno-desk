@@ -76,13 +76,13 @@ def split_snaps(snaps: pd.DataFrame):
     warnings = []
     if earlier:
         past_ts = earlier[-1]
-    elif len(ts_list) > 1:
+    elif len(ts_list) > 1 and (pd.Timestamp(latest_ts) - pd.Timestamp(ts_list[0])).total_seconds() >= 30 * 60:
         past_ts = ts_list[0]
         warnings.append(f"Only {int((pd.Timestamp(latest_ts) - pd.Timestamp(past_ts)).total_seconds() // 60)} "
                         "min of data today; OI shift uses that instead of 60 min.")
-    else:
+    else:   # under 30 minutes of data: a few minutes of OI change is noise, use the day's change
         past_ts = None
-        warnings.append("Single snapshot today; OI shift uses the day's change in OI.")
+        warnings.append("Less than 30 min of snapshots today; OI shift uses the day's change in OI.")
     past = snaps[snaps.ts == past_ts].sort_values("strike") if past_ts is not None else None
     mins = int((pd.Timestamp(latest_ts) - pd.Timestamp(past_ts)).total_seconds() // 60) if past_ts is not None else 0
     mode = f"{mins} min" if past_ts is not None else "day's change"
