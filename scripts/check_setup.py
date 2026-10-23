@@ -16,9 +16,12 @@ if url and key:
                          headers={**h, "Prefer": "count=exact"}, timeout=30)
         lines.append(f"table {t}: HTTP {r.status_code}, rows {r.headers.get('content-range', '?')} "
                      + ("" if r.status_code == 200 else r.text[:160]))
-    r = requests.get(f"{url}/rest/v1/trades", params={"select": "id", "limit": "5"}, headers={"apikey": pub}, timeout=30)
-    lines.append(f"public key reading trades (should be empty, access rules): HTTP {r.status_code} {r.text[:80]}")
-    r = requests.get(f"{url}/auth/v1/settings", headers={"apikey": pub}, timeout=30)
+base = url or "https://ggybblynosipnqbzedsx.supabase.co"
+for t in ("trades", "docs"):
+    r = requests.get(f"{base}/rest/v1/{t}", params={"select": "*", "limit": "5"}, headers={"apikey": pub}, timeout=30)
+    lines.append(f"public key reading {t} (200 + [] = table exists and is locked): HTTP {r.status_code} {r.text[:120]}")
+r = requests.get(f"{base}/auth/v1/settings", headers={"apikey": pub}, timeout=30)
+if True:
     try:
         j = r.json()
         lines.append(f"auth: email enabled {j.get('external', {}).get('email')}, signup disabled {j.get('disable_signup')}")
