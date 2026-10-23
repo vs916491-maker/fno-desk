@@ -46,3 +46,12 @@ write on this repo). GitHub emails a reminder about 7 days before it expires.
    `select vault.update_secret((select id from vault.secrets where name = 'github_token'), 'NEW_TOKEN');`
 3. Test: `select public.dispatch_workflow('stock-screener.yml', true);`, then
    check `select status_code from net._http_response order by created desc limit 1;` shows 204.
+
+
+## Cash trades for Sector Strength's "My Trades"
+
+`supabase/003_cash_trades.sql` creates the private `cash_trades` table used by
+the Sector Strength website's My Trades tab (run it once in the SQL Editor).
+The *Cash trades check* workflow (`desk/cash_journal.py`) runs at 16:20 and
+19:40 IST on weekdays: it updates each open trade's last close, 50-day average
+and sessions held from daily candles, and closes trades by their exit rule.
