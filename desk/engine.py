@@ -225,16 +225,16 @@ def futures_day(futs: pd.DataFrame, today: date, target_expiry: date | None) -> 
     pick = last[last.exp == target_expiry] if target_expiry else last.iloc[0:0]
     row = (pick if not pick.empty else last.sort_values("exp")).iloc[0]
     pct = float(row.pchange) if row.pchange else (float((row.ltp / row.prev_close - 1) * 100) if row.prev_close else 0.0)
-    prev_ts = futs[pd.to_datetime(futs.ts).dt.date < today].ts.max() if (pd.to_datetime(futs.ts).dt.date < today).any() else None
-    if prev_ts is not None:
-        ch = futures_change(futs, prev_ts, last_ts)
-        coi = ch["oi_change"] if ch else 0.0
-        src = "since previous close"
-    else:
-        alive = _two_nearest(last, today)
-        coi = float(alive.coi.sum()) if "coi" in alive and alive.coi.abs().sum() > 0 else 0.0
-        src = "feed's day change" if coi else "no previous session yet"
     alive = _two_nearest(last, today)
+    if "coi" in last and last.coi.abs().sum() > 0:
+        coi = float(last.coi.sum())        # NSE's change in OI since yesterday, all months together
+        src = "NSE day change, all months"
+    else:
+        prev_mask = pd.to_datetime(futs.ts).dt.date < today
+        prev_ts = futs[prev_mask].ts.max() if prev_mask.any() else None
+        ch = futures_change(futs, prev_ts, last_ts) if prev_ts is not None else None
+        coi = ch["oi_change"] if ch else 0.0
+        src = "since previous session" if ch else "no previous session yet"
     return {"fut_expiry": str(row.exp), "fut_ltp": float(row.ltp), "fut_pct": pct,
             "oi_total": float(alive.oi.sum()), "coi_total": coi, "source": src,
             "state": buildup_state(pct, coi)}

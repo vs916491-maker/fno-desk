@@ -142,9 +142,29 @@ class NSE:
 
     # -------------------------------------------------------- index futures
     def index_futures(self, symbol: str) -> list[dict]:
-        key = config.INDICES[symbol]["fut_key"]
-        if not key:
+        """All futures contracts of an index with OI and today's change in OI.
+        NSE's quote API first (has change in OI); the live futures feed as backup."""
+        if not config.INDICES[symbol]["fut_key"]:
             return []
+        try:
+            j = self.get("/api/NextApi/apiClient/GetQuoteApi",
+                         {"functionName": "getSymbolDerivativesData", "symbol": symbol})
+            rows = j.get("data") if isinstance(j, dict) else j
+            out = []
+            for d in rows or []:
+                if not str(d.get("instrumentType", "")).upper().startswith("FUT"):
+                    continue
+                exp = parse_date(d.get("expiryDate"))
+                if exp:
+                    ltp, prev = num(d.get("lastPrice")), num(d.get("prevClose"))
+                    out.append({"expiry": exp, "ltp": ltp, "prev_close": prev,
+                                "pchange": num(d.get("pchange")) or ((ltp / prev - 1) * 100 if prev else 0.0),
+                                "oi": num(d.get("openInterest")), "coi": num(d.get("changeinOpenInterest"))})
+            if out:
+                return sorted(out, key=lambda x: x["expiry"])
+        except (ConnectionError, ValueError):
+            pass
+        key = config.INDICES[symbol]["fut_key"]
         j = self.get("/api/liveEquity-derivatives", {"index": key})
         out = []
         for d in j.get("data") or []:
