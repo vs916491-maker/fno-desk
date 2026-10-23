@@ -633,18 +633,26 @@ function exportCsv(rows) {
 
 // ------------------------------------------------------------------ sign-in
 function viewSignIn(app, message) {
-  const email = h("input", { type: "email", value: CFG.email || "", required: true, autocomplete: "email" });
-  const msg = h("p", { class: "note", role: "status" }, message || "");
+  const email = h("input", { type: "email", value: CFG.email || "", required: true, autocomplete: "username" });
+  const pass = h("input", { type: "password", required: true, autocomplete: "current-password" });
+  const msg = h("p", { class: "err", role: "status" }, message || "");
+  const show = h("label", { class: "toggle", style: "margin-top:8px" },
+    h("input", { type: "checkbox", onchange: (e) => { pass.type = e.target.checked ? "text" : "password"; } }), "Show password");
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Sign in");
   const form = h("form", { class: "panel signin" },
     h("h1", null, "Sign in"),
-    h("p", { class: "intro" }, "This desk is private. Enter your email and open the sign-in link on this device."),
+    h("p", { class: "intro" }, "This desk is private. You stay signed in on this device until you sign out."),
     h("label", { class: "note" }, "Email", email), h("div", { style: "height:10px" }),
-    h("button", { class: "btn primary", type: "submit" }, "Email me a sign-in link"), msg);
+    h("label", { class: "note" }, "Password", pass), show, h("div", { style: "height:14px" }),
+    btn, msg);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    msg.textContent = "Sending…";
-    const { error } = await sb.auth.signInWithOtp({ email: email.value.trim(), options: { emailRedirectTo: location.origin + location.pathname } });
-    msg.textContent = error ? `Could not send the link: ${error.message}` : "Check your email and open the link on this device.";
+    btn.disabled = true;
+    msg.textContent = "";
+    const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: pass.value });
+    btn.disabled = false;
+    if (error) msg.textContent = /invalid/i.test(error.message) ? "Email or password is wrong." : `Could not sign in: ${error.message}`;
+    else route();
   });
   render(app, form);
 }
