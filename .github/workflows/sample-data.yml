@@ -1,0 +1,30 @@
+name: Save sample data (dry run)
+
+# One-off: runs both jobs without Supabase and commits their output to
+# site/sample/ so the website can be previewed and tested with real data.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m desk.snapshot --force
+      - run: python -m desk.screener --force
+      - name: Commit sample
+        run: |
+          mkdir -p site/sample && cp out/*.json site/sample/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/sample
+          git commit -m "Sample data (dry run)" || exit 0
+          git pull --rebase origin main && git push origin HEAD:main
