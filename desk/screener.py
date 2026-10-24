@@ -102,13 +102,26 @@ def follow(df: pd.DataFrame, e: pd.Series, sig: dict, lv: dict) -> tuple[str, st
     return "open", None
 
 
-def sector_view() -> dict[str, dict]:
-    """symbol -> {"long": sector name or None, "short": sector name or None}."""
-    try:
-        sec = requests.get(f"{config.SECTOR_SITE}/sectors.json", timeout=20).json()
-        stk = requests.get(f"{config.SECTOR_SITE}/stocks.json", timeout=30).json()
-    except Exception:  # noqa: BLE001
-        return {}
+def sector_view(db=None) -> dict[str, dict]:
+    """symbol -> {"long": sector name or None, "short": sector name or None}.
+
+    The Sector Strength website now keeps its data in the same private
+    database (docs ss_sectors / ss_stocks); the old public files are the
+    fallback."""
+    sec = stk = None
+    if db is not None and hasattr(db, "select"):
+        try:
+            rows = db.select("docs", {"key": "in.(ss_sectors,ss_stocks)", "select": "key,data"})
+            got = {r["key"]: r["data"] for r in rows}
+            sec, stk = got.get("ss_sectors"), got.get("ss_stocks")
+        except Exception:  # noqa: BLE001
+            sec = stk = None
+    if not sec or not stk:
+        try:
+            sec = requests.get(f"{config.SECTOR_SITE}/sectors.json", timeout=20).json()
+            stk = requests.get(f"{config.SECTOR_SITE}/stocks.json", timeout=30).json()
+        except Exception:  # noqa: BLE001
+            return {}
     rows = sec["benchmarks"]["NIFTY500"]["rows"]
     names = sec.get("names", {})
     out = {}
@@ -188,7 +201,7 @@ def main() -> int:
             if sig and sig["time"].date() == last_day:
                 raw.append((sym, df, e, sig))
 
-    sectors = sector_view()
+    sectors = sector_view(db)
     ideas, others = [], []
     for sym, df, e, sig in raw:
         side = "Long" if sig["dir"] > 0 else "Short"
