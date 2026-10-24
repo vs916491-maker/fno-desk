@@ -256,6 +256,31 @@ function timeChart(cfg) {
 const legend = (items) => h("div", { class: "legend" }, items.map(([n, c]) => h("span", null, h("i", { class: "line", style: `background:${c}` }), n)));
 const chartCard = (title, note, chart, leg) => h("div", { class: "chart" }, h("h3", null, title), h("p", null, note), chart, leg || null);
 
+
+// ------------------------------------------------------------------ chart links (TradingView)
+const TV_INDEX = { NIFTY: "NSE:NIFTY", BANKNIFTY: "NSE:BANKNIFTY", FINNIFTY: "NSE:CNXFINANCE", MIDCPNIFTY: "NSE:NIFTY_MID_SELECT", SENSEX: "BSE:SENSEX" };
+const TV_FUT = { NIFTY: "NSE:NIFTY1!", BANKNIFTY: "NSE:BANKNIFTY1!", FINNIFTY: "NSE:FINNIFTY1!", MIDCPNIFTY: "NSE:MIDCPNIFTY1!", SENSEX: "BSE:SENSEX1!" };
+function tvSymbol(sym, kind) {
+  if (kind === "fut") return TV_FUT[sym] || TV_INDEX[sym];
+  if (kind === "index") return TV_INDEX[sym];
+  return `NSE:${String(sym).toUpperCase().replace(/[&-]/g, "_")}`;
+}
+/* Small candlestick icon that opens the symbol on TradingView in a new tab.
+   kind: "stock" (default), "index" (spot) or "fut" (continuous front-month futures). */
+function chartLink(sym, kind = "stock", interval = "60") {
+  const tv = tvSymbol(sym, kind);
+  if (!tv) return null;
+  const a = h("a", { class: "chart-link", href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tv)}&interval=${interval}`,
+    target: "_blank", rel: "noopener", title: `Open ${tv} chart on TradingView`, "aria-label": `Open ${sym} chart on TradingView`,
+    onclick: (e) => e.stopPropagation() });
+  a.append(s("svg", { viewBox: "0 0 16 16", width: 15, height: 15, "aria-hidden": "true" },
+    s("line", { x1: 4, y1: 2, x2: 4, y2: 14, stroke: "currentColor", "stroke-width": 1.4 }),
+    s("rect", { x: 2.2, y: 5, width: 3.6, height: 6, rx: 0.6, fill: "currentColor" }),
+    s("line", { x1: 11, y1: 1.5, x2: 11, y2: 12.5, stroke: "currentColor", "stroke-width": 1.4 }),
+    s("rect", { x: 9.2, y: 3.5, width: 3.6, height: 6, rx: 0.6, fill: "none", stroke: "currentColor", "stroke-width": 1.4 })));
+  return a;
+}
+
 // ------------------------------------------------------------------ trade dialog
 function tradeDialog(prefill, onSaved) {
   const dlg = document.getElementById("dlg");
@@ -350,7 +375,7 @@ async function viewStocks(app) {
     target: x.levels.target, source: "scanner", notes: `50 EMA cross ${x.signal_time.slice(11, 16)} + ${x.futures.buildup}` }, () => { location.hash = "#/trades"; });
 
   const topCards = top.map((x) => h("div", { class: "idea top" },
-    h("h3", null, h("span", null, h("span", { class: "rank" }, `#${x.top_rank}`), " ", x.symbol), h("small", null, `score ${Math.round(x.scoring.score)}`)),
+    h("h3", null, h("span", null, h("span", { class: "rank" }, `#${x.top_rank}`), " ", x.symbol, " ", chartLink(x.symbol)), h("small", null, `score ${Math.round(x.scoring.score)}`)),
     h("div", { class: "btn-row" }, sideTag(x.side), h("span", { class: "meta" }, `signal ${x.signal_time.slice(11, 16)}, ${x.entry_status}`),
       x.lot_size ? h("span", { class: "flag fno" }, `lot ${x.lot_size}`) : null),
     levelsBox(x.levels),
@@ -367,7 +392,7 @@ async function viewStocks(app) {
     h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures", "OI chg", "Score", ""].map((c, i) =>
       h("th", { class: i < 2 ? "l" : null }, c)))),
     h("tbody", null, ideas.map((x) => h("tr", { style: "cursor:default" },
-      h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null),
+      h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null, chartLink(x.symbol)),
       h("td", { class: "l" }, sideTag(x.side)),
       h("td", null, x.signal_time.slice(11, 16)),
       h("td", null, fmt(x.levels.entry)), h("td", null, fmt(x.levels.stop)), h("td", null, fmt(x.levels.target)),
@@ -380,7 +405,7 @@ async function viewStocks(app) {
   const otherTable = h("table", null,
     h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Close", "Why it is not listed"].map((c, i) => h("th", { class: i === 1 || i === 0 || i === 4 ? "l" : null }, c)))),
     h("tbody", null, others.map((x) => h("tr", { style: "cursor:default" },
-      h("td", { class: "l name" }, x.symbol), h("td", { class: "l" }, sideTag(x.side)), h("td", null, x.signal_time.slice(11, 16)),
+      h("td", { class: "l name" }, x.symbol, chartLink(x.symbol)), h("td", { class: "l" }, sideTag(x.side)), h("td", null, x.signal_time.slice(11, 16)),
       h("td", null, fmt(x.close)), h("td", { class: "l" }, x.reason)))));
 
   render(app, 
@@ -582,7 +607,7 @@ async function viewSwing(app) {
     const trades = sig.trades || [];
     return h("div", { class: "panel", style: "margin-bottom:14px" },
       h("div", { class: "section-head", style: "margin:0 0 8px" },
-        h("h2", null, sig.symbol, " ", sideTag(sig.direction), sig.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${sig.strength}`) : null),
+        h("h2", null, sig.symbol, " ", chartLink(sig.symbol, "fut", "60"), " ", sideTag(sig.direction), sig.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${sig.strength}`) : null),
         h("p", null, isNum(sig.score) ? `Score ${sig.score >= 0 ? "+" : ""}${sig.score} of ±5 (needs ±${sig.threshold}); monthly expiry ${sig.expiry} (${sig.dte}d)` : "")),
       h("div", { class: "stats" },
         stat("Spot", fmt(sig.spot)), stat("Support / resistance", `${fmt0(lv.support)} / ${fmt0(lv.resistance)}`),
@@ -610,7 +635,7 @@ async function viewSwing(app) {
     h("thead", null, h("tr", null, ["Formed at", "Index", "Setup", "Score", "Spot", "Futures entry", "Stop", "Target"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
     h("tbody", null, events.map((e) => {
       const t = vol(e);
-      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(e.ts)), h("td", { class: "l name" }, e.symbol),
+      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(e.ts)), h("td", { class: "l name" }, e.symbol, chartLink(e.symbol, "fut", "60")),
         h("td", { class: "l" }, e.direction === "ENDED" ? h("span", { class: "muted" }, "Setup ended") : [sideTag(e.direction), e.strength ? ` ${e.strength}` : ""]),
         h("td", null, isNum(e.score) ? `${e.score > 0 ? "+" : ""}${e.score}` : "–"), h("td", null, fmt(e.spot)),
         h("td", null, t ? fmt(t.entry) : "–"), h("td", null, t ? fmt(t.stop) : "–"), h("td", null, t ? fmt(t.target) : "–"));
@@ -668,7 +693,7 @@ async function viewTrades(app) {
 
   const row = (t, isOpen) => h("tr", { style: "cursor:default" },
     h("td", { class: "l" }, when(t.entry_time)),
-    h("td", { class: "l name" }, t.symbol, h("small", null, t.kind === "index" ? `Index futures${t.lots ? `, ${t.lots} lot${t.lots > 1 ? "s" : ""}` : ""}` : (t.source || "stock"))),
+    h("td", { class: "l name" }, t.symbol, chartLink(t.symbol, t.kind === "index" ? "fut" : "stock", "60"), h("small", null, t.kind === "index" ? `Index futures${t.lots ? `, ${t.lots} lot${t.lots > 1 ? "s" : ""}` : ""}` : (t.source || "stock"))),
     h("td", { class: "l" }, sideTag(t.side)),
     h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
     isOpen ? null : h("td", null, fmt(t.exit)),
