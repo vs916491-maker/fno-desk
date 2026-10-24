@@ -283,6 +283,7 @@ function chartLink(sym, kind = "stock", interval = "60") {
 
 // ------------------------------------------------------------------ trade dialog
 function tradeDialog(prefill, onSaved) {
+  if (prefill && prefill.id && prefill.status === "closed") return;   // closed trades are locked
   const dlg = document.getElementById("dlg");
   const t = { kind: "stock", side: "Long", source: "manual", ...prefill };
   const field = (label, name, attrs = {}, wide = false) =>
@@ -702,7 +703,7 @@ async function viewTrades(app) {
     isOpen ? null : h("td", { class: sign(t.pnl_inr) }, inr(t.pnl_inr)),
     h("td", { class: "l" }, h("div", { class: "btn-row" },
       isOpen ? h("button", { class: "btn small", type: "button", onclick: () => closeDialog(t, rerender) }, "Close") : null,
-      h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit"),
+      isOpen ? h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit") : h("span", { class: "muted", title: "Closed trades are locked" }, "Locked"),
       h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteTrade(t.id); rerender(); } } }, "Delete"))));
   const table = (rows, isOpen) => h("table", null,
     h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? [] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
