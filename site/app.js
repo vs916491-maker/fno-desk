@@ -657,36 +657,50 @@ async function viewTrades(app) {
   const trades = all.filter((t) => view === "all" || t.kind === view);
   const open = trades.filter((t) => t.status === "open"), closed = trades.filter((t) => t.status === "closed");
   const rerender = () => route();
-  const pctVals = closed.map((t) => t.net_pct_after_cost).filter(isNum);
-  const wins = pctVals.filter((v) => v > 0), losses = pctVals.filter((v) => v <= 0);
-  const pf = losses.length ? wins.reduce((a, b) => a + b, 0) / Math.abs(losses.reduce((a, b) => a + b, 0)) : null;
-  const inrVals = closed.map((t) => t.pnl_inr).filter(isNum);
+  // closed trades older than 3 months are kept only as monthly totals (table trade_months)
+  let archive = [];
+  if (LIVE) {
+    const { data, error } = await sb.from("trade_months").select("*").eq("book", "fno");
+    if (!error && data) archive = data.filter((r) => view === "all" || r.kind === view);
+  }
+  const blank = () => ({ n: 0, pctN: 0, w: 0, sum: 0, gain: 0, loss: 0, inrN: 0, inr: 0 });
+  const addTrade = (g, t) => {
+    g.n += 1;
+    const v = t.net_pct_after_cost;
+    if (isNum(v)) { g.pctN += 1; g.sum += v; if (v > 0) { g.w += 1; g.gain += v; } else g.loss += v; }
+    if (isNum(t.pnl_inr)) { g.inrN += 1; g.inr += t.pnl_inr; }
+  };
+  const addMonth = (g, r) => {
+    g.n += r.trades; g.pctN += r.pct_count; g.w += r.wins; g.sum += r.sum_pct; g.gain += r.gain_pct;
+    g.loss += r.loss_pct; g.inrN += r.inr_count; g.inr += r.pnl_inr;
+  };
+  const tot = blank();
+  closed.forEach((t) => addTrade(tot, t));
+  archive.forEach((r) => addMonth(tot, r));
+  const pf = tot.loss < 0 ? tot.gain / Math.abs(tot.loss) : null;
+  const archivedN = archive.reduce((a2, r) => a2 + r.trades, 0);
   const stats = h("div", { class: "stats" },
-    stat("Closed trades", closed.length, `${open.length} open`),
-    stat("Win rate", pctVals.length ? `${Math.round((wins.length / pctVals.length) * 100)}%` : "–", `${wins.length} won, ${losses.length} lost`),
-    stat("Average per trade", pctVals.length ? pct(pctVals.reduce((a, b) => a + b, 0) / pctVals.length) : "–", "Net % after costs", sign(pctVals.reduce((a, b) => a + b, 0))),
+    stat("Closed trades", tot.n, `${open.length} open${archivedN ? ` · ${archivedN} older than 3 months kept as monthly totals` : ""}`),
+    stat("Win rate", tot.pctN ? `${Math.round((tot.w / tot.pctN) * 100)}%` : "–", `${tot.w} won, ${tot.pctN - tot.w} lost`),
+    stat("Average per trade", tot.pctN ? pct(tot.sum / tot.pctN) : "–", "Net % after costs", sign(tot.sum)),
     stat("Profit factor", isNum(pf) ? pf.toFixed(2) : "–", "Total % won ÷ total % lost"),
-    stat("Net P&L in %", pctVals.length ? pct(pctVals.reduce((a, b) => a + b, 0)) : "–", "Sum of net % of closed trades", sign(pctVals.reduce((a, b) => a + b, 0))),
-    stat("Net P&L in ₹", inrVals.length ? inr(inrVals.reduce((a, b) => a + b, 0)) : "–", "Index futures and stocks with quantity", sign(inrVals.reduce((a, b) => a + b, 0))));
+    stat("Net P&L in %", tot.pctN ? pct(tot.sum) : "–", "Sum of net % of closed trades", sign(tot.sum)),
+    stat("Net P&L in ₹", tot.inrN ? inr(tot.inr) : "–", "Index futures and stocks with quantity", sign(tot.inr)));
 
   // month-wise: by the month a trade was closed (entry month if no exit time was recorded)
   const months = {};
   for (const t of closed) {
     const m = String(t.exit_time || t.entry_time || "").slice(0, 7);
-    if (!m) continue;
-    const g = (months[m] ||= { n: 0, w: 0, pcts: [], inr: 0, hasInr: false });
-    g.n += 1;
-    if (isNum(t.net_pct_after_cost)) { g.pcts.push(t.net_pct_after_cost); if (t.net_pct_after_cost > 0) g.w += 1; }
-    if (isNum(t.pnl_inr)) { g.inr += t.pnl_inr; g.hasInr = true; }
+    if (m) addTrade(months[m] ||= blank(), t);
   }
+  for (const r of archive) addMonth(months[r.month] ||= blank(), r);
   const monthRows = Object.keys(months).sort().reverse().map((m) => {
-    const g = months[m], sum = g.pcts.reduce((a, b) => a + b, 0);
-    const won = g.pcts.filter((v) => v > 0).reduce((a, b) => a + b, 0), lost = Math.abs(g.pcts.filter((v) => v <= 0).reduce((a, b) => a + b, 0));
+    const g = months[m];
     const label = new Date(`${m}-01T00:00:00`).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
     return h("tr", { style: "cursor:default" }, h("td", { class: "l name" }, label), h("td", null, g.n),
-      h("td", null, `${g.w} / ${g.n - g.w}`), h("td", null, g.pcts.length ? `${Math.round((g.w / g.pcts.length) * 100)}%` : "–"),
-      h("td", { class: sign(sum) }, pct(sum)), h("td", { class: sign(sum) }, g.pcts.length ? pct(sum / g.pcts.length) : "–"),
-      h("td", null, lost ? (won / lost).toFixed(2) : g.pcts.length ? "∞" : "–"), h("td", { class: sign(g.inr) }, g.hasInr ? inr(g.inr) : "–"));
+      h("td", null, `${g.w} / ${g.pctN - g.w}`), h("td", null, g.pctN ? `${Math.round((g.w / g.pctN) * 100)}%` : "–"),
+      h("td", { class: sign(g.sum) }, pct(g.sum)), h("td", { class: sign(g.sum) }, g.pctN ? pct(g.sum / g.pctN) : "–"),
+      h("td", null, g.loss < 0 ? (g.gain / Math.abs(g.loss)).toFixed(2) : g.pctN ? "∞" : "–"), h("td", { class: sign(g.inr) }, g.inrN ? inr(g.inr) : "–"));
   });
   const monthTable = h("table", null,
     h("thead", null, h("tr", null, ["Month", "Trades", "Won / lost", "Win rate", "Net %", "Avg per trade", "Profit factor", "Net ₹"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))),
@@ -718,7 +732,7 @@ async function viewTrades(app) {
       h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
     h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions."),
     stats,
-    monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed")),
+    monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed. Trade details are kept for 3 months; monthly totals are kept for good.")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, monthTable))) : null,
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Open (${open.length})`)),
       open.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, table(open, true))) : h("p", { class: "empty" }, "No open trades.")),
