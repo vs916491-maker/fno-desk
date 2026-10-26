@@ -40,8 +40,9 @@ begin
     perform cron.unschedule(j.jobname);
   end loop;
 end $$;
--- every day 18:50 IST with the daily email (13:20 UTC), 23:30 IST catch-up for late filers (18:00 UTC)
-select cron.schedule('fundamentals-evening', '20 13 * * *',
+-- every day 19:10 IST with the daily email (13:40 UTC; the collector only emails after 7 PM),
+-- and 23:30 IST catch-up for late filers (18:00 UTC)
+select cron.schedule('fundamentals-evening', '40 13 * * *',
   $$select public.dispatch_repo_workflow_inputs('NSE-fundamentals-desk', 'collect.yml', '{"args": "--email"}'::jsonb)$$);
 select cron.schedule('fundamentals-late', '0 18 * * *',
   $$select public.dispatch_repo_workflow_inputs('NSE-fundamentals-desk', 'collect.yml', '{"args": ""}'::jsonb)$$);
