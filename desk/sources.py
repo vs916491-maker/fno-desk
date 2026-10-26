@@ -316,6 +316,13 @@ def yahoo_chart(symbol: str, interval: str = "60m", rng: str = "3mo") -> pd.Data
         res = r.json()["chart"]["result"][0]
     except Exception:  # noqa: BLE001
         return pd.DataFrame()
+    meta = res.get("meta", {})
+    if not res.get("timestamp"):
+        # right at the open (or on a holiday) there may be no candles yet: keep the quote only
+        empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+        empty.attrs["prev_close"] = meta.get("chartPreviousClose") or meta.get("previousClose")
+        empty.attrs["price"] = meta.get("regularMarketPrice")
+        return empty
     q = res["indicators"]["quote"][0]
     idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert(config.TZ).tz_localize(None)
     df = pd.DataFrame({"Open": q["open"], "High": q["high"], "Low": q["low"],
@@ -327,7 +334,7 @@ def yahoo_chart(symbol: str, interval: str = "60m", rng: str = "3mo") -> pd.Data
 
 def yahoo_quote(symbol: str) -> dict | None:
     df = yahoo_chart(symbol, "5m", "1d")
-    if df.empty:
+    if df.empty and not df.attrs.get("price"):
         return None
     price = df.attrs.get("price") or float(df.Close.iloc[-1])
     prev = df.attrs.get("prev_close")
