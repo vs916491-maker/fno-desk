@@ -126,6 +126,39 @@ async function deleteTrade(id) {
   const i = sampleTrades.findIndex((x) => x.id === id);
   if (i >= 0) sampleTrades.splice(i, 1);
 }
+// ------------------------------------------------------------------ watchlist data
+const sampleWatch = [];
+async function loadWatch() {
+  if (!LIVE) return sampleWatch.slice();
+  const { data, error } = await sb.from("watchlist").select("*").order("added_at", { ascending: false });
+  if (error) throw new Error(/watchlist/i.test(error.message) && /exist|schema/i.test(error.message)
+    ? "the watchlist table is not set up yet (run supabase/007_watchlist.sql)" : error.message);
+  const today = istDate();
+  return data.filter((w) => String(w.expires_on) >= today);
+}
+async function addWatch(row) {
+  if (!LIVE) { sampleWatch.unshift({ ...row, id: Date.now(), added_at: new Date().toISOString() }); return; }
+  const { error } = await sb.from("watchlist").insert(row);
+  if (error) throw new Error(error.message);
+}
+async function deleteWatch(id) {
+  if (!LIVE) { const i = sampleWatch.findIndex((w) => w.id === id); if (i >= 0) sampleWatch.splice(i, 1); return; }
+  const { error } = await sb.from("watchlist").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+/* today's date in India, YYYY-MM-DD */
+function istDate(d = new Date()) {
+  return new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10);   // UTC + 5:30
+}
+/* the n-th market day (Mon-Fri) after `from` (YYYY-MM-DD). NSE holidays are not counted. */
+function marketDaysAfter(from, n) {
+  const d = new Date(`${from}T12:00:00Z`);
+  let left = n;
+  while (left > 0) { d.setUTCDate(d.getUTCDate() + 1); const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) left -= 1; }
+  return d.toISOString().slice(0, 10);
+}
+const WATCH_DAYS = 3;
+
 async function swingEvents() {
   if (!LIVE) return [];
   const since = new Date(Date.now() - 8 * 86400000).toISOString().slice(0, 10);
@@ -336,6 +369,37 @@ function tradeDialog(prefill, onSaved) {
 }
 function readForm(form) { return Object.fromEntries(new FormData(form).entries()); }
 
+/* "Move to watchlist": confirm Long/Short (and a note), keep for 3 market days. */
+function watchDialog(item) {
+  const dlg = document.getElementById("dlg");
+  const until = marketDaysAfter(istDate(), WATCH_DAYS);
+  const err = h("p", { class: "err", role: "alert" });
+  const sideBtn = (sd) => h("label", { class: `side-pick ${sd.toLowerCase()}` },
+    h("input", { type: "radio", name: "side", value: sd, checked: item.side === sd || null }), sd);
+  const form = h("form", { method: "dialog" },
+    h("h2", null, `Move ${item.symbol} to watchlist`),
+    h("p", { class: "note" }, `${item.kind === "index" ? "Index futures" : "Stock"} · ${item.method || item.source || ""}. It stays on the watchlist until ${new Date(`${until}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })} (${WATCH_DAYS} market days), then it is removed.`),
+    h("div", { class: "form-grid" },
+      h("div", { class: "wide" }, h("span", { class: "note" }, "Watch for a"), h("div", { class: "side-row" }, sideBtn("Long"), sideBtn("Short"))),
+      h("label", { class: "wide" }, "Note (optional)", h("textarea", { name: "notes" }, item.notes || ""))),
+    err,
+    h("div", { class: "btn-row" },
+      h("button", { class: "btn primary", type: "submit" }, "Add to watchlist"),
+      h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel")));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = readForm(form);
+    if (!v.side) { err.textContent = "Choose Long or Short."; return; }
+    const row = { kind: item.kind, symbol: item.symbol, side: v.side, expires_on: until,
+      entry: isNum(item.entry) ? item.entry : null, stop: isNum(item.stop) ? item.stop : null, target: isNum(item.target) ? item.target : null,
+      lot_size: item.lot_size || null, expiry: item.expiry || null, method: item.method || null, source: item.source || null,
+      notes: v.notes || null, signal_time: item.signal_time || null };
+    try { await addWatch(row); dlg.close(); location.hash = "#/watch"; } catch (ex) { err.textContent = `Could not save: ${ex.message}`; }
+  });
+  dlg.replaceChildren(form);
+  dlg.showModal();
+}
+
 function closeDialog(tr, onSaved) {
   const dlg = document.getElementById("dlg");
   const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -374,6 +438,9 @@ async function viewStocks(app) {
   const top = ideas.filter((x) => x.top_rank).sort((a, b) => a.top_rank - b.top_rank);
   const early = d.early ? h("div", { class: "banner expiry" }, h("b", null, "Early scan. "),
     `No hourly candle has closed yet today (the first one closes at 10:15). These signals come from the previous session's candles, up to ${new Date(d.early.last_candle).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}, and the futures check covers only the first ${d.early.futures_minutes} minutes of today, so OI changes and scores are small. New signals for today start with the 10:19 scan.`) : null;
+  const watch = (x) => watchDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
+    target: x.levels.target, lot_size: x.lot_size, source: "screener", signal_time: x.signal_time,
+    method: `50 EMA cross ${x.signal_time.slice(11, 16)}${x.futures ? ` + ${x.futures.buildup}` : ""}` });
   const took = (x) => tradeDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
     target: x.levels.target, source: "scanner", notes: `50 EMA cross ${x.signal_time.slice(11, 16)} + ${x.futures.buildup}` }, () => { location.hash = "#/trades"; });
 
@@ -389,7 +456,8 @@ async function viewStocks(app) {
       part("OI change", x.scoring.oi_change, `${Math.round(x.scoring.oi_change)}`),
       part("Sector boost", x.scoring.boost * 10, x.scoring.boost ? `+${x.scoring.boost}` : "0")),
     x.scoring.sector ? h("div", { class: "meta" }, `${x.scoring.sector} sector is ${x.scoring.sector_quadrant} on the Sector Strength RRG`) : null,
-    h("div", null, h("button", { class: "btn primary small", type: "button", onclick: () => took(x) }, "I took this trade"))));
+    h("div", { class: "btn-row" }, h("button", { class: "btn primary small", type: "button", onclick: () => took(x) }, "I took this trade"),
+      h("button", { class: "btn small", type: "button", onclick: () => watch(x) }, "Move to watchlist"))));
 
   const ideaTable = h("table", null,
     h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures", "OI chg", "Score", ""].map((c, i) =>
@@ -402,7 +470,8 @@ async function viewStocks(app) {
       h("td", null, pct(x.levels.risk_pct, 2, false)),
       h("td", null, x.futures.buildup), h("td", null, pct(x.futures.pchg_oi, 1)),
       h("td", null, Math.round(x.scoring.score)),
-      h("td", null, h("button", { class: "btn small", type: "button", onclick: () => took(x) }, "I took this trade"))))));
+      h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(x) }, "I took this trade"),
+        h("button", { class: "btn small", type: "button", onclick: () => watch(x) }, "Watchlist")))))));
 
   const others = d.others || [];
   const otherTable = h("table", null,
@@ -602,6 +671,9 @@ async function viewSwing(app) {
   const [d, hist, events] = await Promise.all([doc("swing_signals"), swingHistory(), swingEvents()]);
   if (!d) return render(app, pageHead("Suggested index trades", null), h("p", { class: "empty" }, "No snapshot yet."));
   const lots = d.lot_sizes || {};
+  const watch = (sig, t) => watchDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
+    entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lot_size: lots[sig.symbol],
+    expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal", signal_time: sig.ts });
   const took = (sig, t) => tradeDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
     entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lots: 1, lot_size: lots[sig.symbol],
     expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal",
@@ -627,7 +699,8 @@ async function viewSwing(app) {
           h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
           h("td", null, isNum(t.rr) ? t.rr.toFixed(2) : "–"), h("td", null, lots[sig.symbol] || "–"),
           h("td", { class: `l ${t.ok ? "pos" : "neg"}` }, t.ok ? "Passes" : "Fails"),
-          h("td", null, h("button", { class: "btn small", type: "button", onclick: () => took(sig, t) }, "I took this trade"))))))) : null,
+          h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(sig, t) }, "I took this trade"),
+            h("button", { class: "btn small", type: "button", onclick: () => watch(sig, t) }, "Watchlist")))))))) : null,
       h("details", null, h("summary", { class: "note", style: "cursor:pointer;margin-top:10px" }, "What makes up the score"), factorTable(sig.factors)));
   });
   const histTable = hist.length ? h("table", null,
@@ -654,6 +727,45 @@ async function viewSwing(app) {
 }
 
 // ------------------------------------------------------------------ tab 5: my trades
+// ------------------------------------------------------------------ watchlist tab
+async function viewWatch(app) {
+  const rows = await loadWatch();
+  const today = istDate();
+  const rerender = () => route();
+  const daysLeft = (w) => { let n = 0, d = today; while (d < String(w.expires_on)) { d = marketDaysAfter(d, 1); n += 1; } return n; };
+  const toTrade = (w) => tradeDialog({ kind: w.kind, symbol: w.symbol, side: w.side, entry: w.entry ?? undefined, stop: w.stop ?? undefined,
+    target: w.target ?? undefined, lots: w.kind === "index" ? 1 : undefined, lot_size: w.lot_size ?? undefined, expiry: w.expiry ?? undefined,
+    method: w.method ?? undefined, source: w.source === "swing signal" ? "swing signal" : "watchlist",
+    notes: [w.method, w.notes].filter(Boolean).join("; ") }, async () => { try { await deleteWatch(w.id); } catch (e) { /* keep going */ } location.hash = "#/trades"; });
+  const table = (list) => h("table", null,
+    h("thead", null, h("tr", null, ["Added", "Symbol", "Type", "Entry", "Stop", "Target", "Kept until", ""].map((c, i) =>
+      h("th", { class: [0, 1, 2, 7].includes(i) ? "l" : null }, c)))),
+    h("tbody", null, list.map((w) => {
+      const left = daysLeft(w);
+      return h("tr", { style: "cursor:default" },
+        h("td", { class: "l" }, when(w.added_at)),
+        h("td", { class: "l name" }, w.symbol, chartLink(w.symbol, w.kind === "index" ? "fut" : "stock", "60"), h("small", null, w.method || w.source || "")),
+        h("td", { class: "l" }, w.kind === "index" ? `Index futures${w.lot_size ? `, lot ${w.lot_size}` : ""}` : `Stock${w.lot_size ? `, lot ${w.lot_size}` : ""}`),
+        h("td", null, fmt(w.entry)), h("td", null, fmt(w.stop)), h("td", null, fmt(w.target)),
+        h("td", { class: left <= 0 ? "neg" : null, title: "Removed automatically after this day" },
+          `${new Date(`${w.expires_on}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}${left <= 0 ? " (last day)" : ` (${left} more day${left > 1 ? "s" : ""})`}`),
+        h("td", { class: "l" }, h("div", { class: "btn-row nowrap" },
+          h("button", { class: "btn primary small", type: "button", onclick: () => toTrade(w) }, "Add to My trades"),
+          h("button", { class: "btn small", type: "button", onclick: async () => { await deleteWatch(w.id); rerender(); } }, "Remove"))));
+    })));
+  const section = (side) => {
+    const list = rows.filter((w) => w.side === side);
+    return h("section", null,
+      h("div", { class: "section-head" }, h("h2", null, h("span", { class: `dot-side ${side.toLowerCase()}` }), `${side} (${list.length})`)),
+      list.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, table(list)))
+        : h("p", { class: "empty" }, `No ${side.toLowerCase()} ideas on the watchlist.`));
+  };
+  render(app,
+    pageHead("Watchlist", `Ideas you are watching. Each stays for ${WATCH_DAYS} market days after the day you added it, then it is removed.`),
+    h("p", { class: "note" }, "Add from the stock screener or the suggested index trades with “Move to watchlist”. “Add to My trades” opens the trade form with the saved levels; after you save, the idea leaves the watchlist. Prices shown are the levels when you added it; check the chart icon for the current price."),
+    section("Long"), section("Short"));
+}
+
 async function viewTrades(app) {
   const all = await loadTrades();
   const view = state.tradeView;
@@ -798,6 +910,7 @@ async function route() {
     else if (tab === "chain") await viewChain(app);
     else if (tab === "swing") await viewSwing(app);
     else if (tab === "trades") await viewTrades(app);
+    else if (tab === "watch") await viewWatch(app);
     else await viewStocks(app);
   } catch (err) {
     render(app, h("p", { class: "empty" }, `Could not load the data (${err.message}). Refresh to try again.`));

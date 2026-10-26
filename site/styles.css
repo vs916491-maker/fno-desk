@@ -374,3 +374,13 @@ textarea { min-height: 60px; resize: vertical; }
 .chart-link { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; margin-left: 6px;
   border: 1px solid var(--hair); border-radius: 5px; color: var(--ink-2); vertical-align: -4px; background: var(--surface); }
 .chart-link:hover { color: var(--ink); border-color: var(--ink-2); }
+
+/* watchlist */
+.btn-row.nowrap { flex-wrap: nowrap; }
+.side-row { display: flex; gap: 10px; margin-top: 6px; }
+.side-pick { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--hair); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+.side-pick input { width: auto; }
+.side-pick.long:has(input:checked) { border-color: var(--q-leading); background: var(--q-leading-wash, rgba(27,175,122,.08)); }
+.side-pick.short:has(input:checked) { border-color: var(--q-lagging); background: var(--q-lagging-wash, rgba(208,59,59,.07)); }
+.dot-side { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.dot-side.long { background: var(--q-leading); } .dot-side.short { background: var(--q-lagging); }
