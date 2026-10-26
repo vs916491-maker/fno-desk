@@ -1,0 +1,59 @@
+name: Sector Strength intraday scan
+
+# Started by the "Run scan" button on the Sector Strength website (through
+# Supabase, like the F&O Desk's scanner button). Uses the Sector Strength code
+# and data (public repo), adds live NSE prices as a provisional row for today,
+# rebuilds and uploads to the private database. Nothing is committed; the
+# evening update replaces it with final end-of-day data.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run outside market hours (testing)"
+        type: boolean
+        default: false
+      probe:
+        description: "Only print what NSE's live feeds return"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sector-intraday
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: vs916491-maker/Nifty-sector-strength
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Live prices and rebuild
+        env:
+          PROBE: ${{ github.event.inputs.probe }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          if [ "$PROBE" = "true" ]; then python -m collector.intraday --probe; exit 0; fi
+          python -m collector.intraday
+      - name: Upload to the private database
+        if: github.event.inputs.probe != 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if ls site/data/*.json >/dev/null 2>&1 && grep -q '"provisional"' site/data/sectors.json; then
+            python -m analysis.publish
+          else
+            echo "Nothing new to upload (market closed or no live data)."
+          fi
