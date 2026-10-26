@@ -97,9 +97,54 @@ def check(tr: dict, df: pd.DataFrame, today: date) -> dict:
     return vals
 
 
+def check_watch(w: dict, df: pd.DataFrame, today: date) -> dict:
+    """Watchlist entry from a Sector Strength setup: first day price reached the
+    buy level (a "buy above" trigger needs the day's high; other setups buy at
+    the setup day's close) and first day it traded at or below the stop."""
+    day0 = pd.Timestamp(w.get("setup_date") or str(w["added_at"])[:10])
+    after = df[(df.index > day0) & (df.index <= pd.Timestamp(today))]
+    vals: dict = {}
+    buy, stop = w.get("buy"), w.get("stop")
+    buy_hit = w.get("buy_hit_on")
+    if buy and not buy_hit:
+        if not w.get("buy_is_trigger"):
+            buy_hit = day0.date().isoformat()
+        else:
+            hit = after[after.High >= float(buy)]
+            if len(hit):
+                buy_hit = hit.index[0].date().isoformat()
+        if buy_hit:
+            vals["buy_hit_on"] = buy_hit
+    if stop and not w.get("stop_hit_on"):
+        hit = after[after.Low <= float(stop)]
+        if len(hit):
+            vals["stop_hit_on"] = hit.index[0].date().isoformat()
+    last = df[df.index <= pd.Timestamp(today)].iloc[-1]
+    vals.update({"last_close": round(float(last.Close), 2), "last_date": last.name.date().isoformat()})
+    return vals
+
+
+def watchlist(db, today: date) -> None:
+    try:
+        rows = db.select("fd_watchlist", {"buy": "not.is.null"})
+    except Exception as exc:  # noqa: BLE001
+        print(f"::warning::watchlist not readable ({exc}); run supabase/001_watchlist.sql in the Fundamentals Desk repo")
+        return
+    n = 0
+    for w in rows:
+        df = candles(w["symbol"])
+        time.sleep(0.4)
+        if df.empty:
+            continue
+        db.update("fd_watchlist", {"id": f"eq.{w['id']}"}, check_watch(w, df, today))
+        n += 1
+    print(f"::notice::Watchlist setups checked: {n} of {len(rows)}")
+
+
 def main() -> int:
     db = store.connect()
     today = datetime.now(ZoneInfo(config.TZ)).date()
+    watchlist(db, today)
     try:
         trades = db.select("cash_trades", {"status": "eq.open"})
     except Exception as exc:  # noqa: BLE001
