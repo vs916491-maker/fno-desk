@@ -188,10 +188,14 @@ def main() -> int:
     missing = [s for s, df in candles.items() if df.empty]
 
     raw = []
+    last_completed = None
     for sym, df in candles.items():
         if df.empty:
             continue
+        full = df
         df = completed(df, now)
+        if len(df):
+            last_completed = max(last_completed, df.index[-1]) if last_completed is not None else df.index[-1]
         if len(df) < config.EF_EMA + config.EF_SWING_BARS + 2:
             continue
         e = ema(df.Close, config.EF_EMA)
@@ -199,20 +203,26 @@ def main() -> int:
         for j in range(len(df) - config.EF_SIGNAL_BARS, len(df)):
             sig = signal_at(df, e, j)
             if sig and sig["time"].date() == last_day:
-                raw.append((sym, df, e, sig))
+                raw.append((sym, df, e, sig, full))
 
     sectors = sector_view(db)
     ideas, others = [], []
-    for sym, df, e, sig in raw:
+    for sym, df, e, sig, full in raw:
         side = "Long" if sig["dir"] > 0 else "Short"
         j = sig["bar"]
         has_next = j + 1 < len(df)
-        entry = float(df.Open.iloc[j + 1]) if has_next else sig["close"]
+        # the next candle may be still in progress (e.g. today's 9:15 candle before 10:15):
+        # its open is already known, so that is the real entry price
+        later = full[full.index > sig["time"]]
+        live_open = float(later.Open.iloc[0]) if not has_next and len(later) and pd.notna(later.Open.iloc[0]) else None
+        entry = float(df.Open.iloc[j + 1]) if has_next else live_open if live_open else sig["close"]
+        status_txt = ("entered at next open" if has_next else
+                      f"entered at {later.index[0]:%H:%M} open (candle in progress)" if live_open else
+                      "enter at the next candle's open")
         lv = levels(sig, entry)
         base = {"symbol": sym, "side": side, "signal_time": sig["time"].strftime("%Y-%m-%dT%H:%M"),
                 "close": sig["close"], "ema": round(sig["ema"], 2), "candle_body": sig["body"],
-                "candle_extremity": sig["extremity"], "entry_status": "entered at next open" if has_next
-                else "enter at the next candle's open", "lot_size": lots.get(sym),
+                "candle_extremity": sig["extremity"], "entry_status": status_txt, "lot_size": lots.get(sym),
                 "ema_now": round(float(e.iloc[-1]), 2), "last_price": float(df.Close.iloc[-1])}
         if not lv:
             others.append({**base, "reason": "No valid stop below/above entry"})
@@ -261,6 +271,12 @@ def main() -> int:
     doc = {"ts": now.strftime("%Y-%m-%dT%H:%M"), "scanned": len(symbols), "no_candles": missing[:40],
            "ideas": ideas, "top5": [x["symbol"] + ":" + x["side"] for x in ranked[:5]],
            "others": others, "sector_boost_available": bool(sectors), "problems": problems,
+           # before the day's first hourly candle closes (10:15), signals come from the previous
+           # session's candles and the futures check covers only the first minutes of today
+           "early": ({"last_candle": last_completed.strftime("%Y-%m-%dT%H:%M"),
+                      "futures_minutes": max(0, int((now - now.replace(hour=9, minute=15, second=0, microsecond=0)).total_seconds() // 60))}
+                     if last_completed is not None and last_completed.date() < now.date() and now.weekday() < 5
+                     and now.strftime("%H:%M") >= "09:15" else None),
            "rules": {"ema": config.EF_EMA, "target_r": config.EF_TARGET_R, "max_days": config.EF_MAX_DAYS,
                      "top5_weights": config.TOP5_WEIGHTS, "sector_boost": config.SECTOR_BOOST}}
     db.put_doc("stock_screener", doc)

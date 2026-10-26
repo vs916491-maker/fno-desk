@@ -372,6 +372,8 @@ async function viewStocks(app) {
   if (!d) return render(app, pageHead("F&O stock screener", null), h("p", { class: "empty" }, "No scan yet. The first scan runs at about 10:20 on the next market day."));
   const ideas = d.ideas || [];
   const top = ideas.filter((x) => x.top_rank).sort((a, b) => a.top_rank - b.top_rank);
+  const early = d.early ? h("div", { class: "banner expiry" }, h("b", null, "Early scan. "),
+    `No hourly candle has closed yet today (the first one closes at 10:15). These signals come from the previous session's candles, up to ${new Date(d.early.last_candle).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}, and the futures check covers only the first ${d.early.futures_minutes} minutes of today, so OI changes and scores are small. New signals for today start with the 10:19 scan.`) : null;
   const took = (x) => tradeDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
     target: x.levels.target, source: "scanner", notes: `50 EMA cross ${x.signal_time.slice(11, 16)} + ${x.futures.buildup}` }, () => { location.hash = "#/trades"; });
 
@@ -412,6 +414,7 @@ async function viewStocks(app) {
   render(app, 
     pageHead("F&O stock screener", `Last scan ${when(d.ts)}, ${d.scanned} F&O stocks`),
     scanBar(d.ts),
+    early,
     h("p", { class: "intro" }, "A solid hourly candle closes across the 50 EMA, and futures show fresh build-up in the same direction. Entry at the next candle's open, stop beyond the breakout candle or recent swing (whichever is closer), target 1:2, exit on a close back across the 50 EMA or after 5 sessions."),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, "Top 5"),
       h("p", null, "Candle clarity 60% + OI change 40%, plus 10 points when the stock's sector leads in the trade's direction")),
@@ -425,7 +428,7 @@ async function viewStocks(app) {
 let scanPoll = null;
 function scanBar(lastTs) {
   const msg = h("span", { class: "note", role: "status" },
-    "Scans automatically about 4 minutes after each hourly candle closes: 10:19, 11:19 … 15:19 and 15:34.");
+    "Scans automatically about 4 minutes after each hourly candle closes: 10:19, 11:19 … 15:19 and 15:34. A manual scan before 10:15 shows the previous session's signals.");
   const btn = h("button", { class: "btn primary", type: "button" }, "Run scanner now");
   btn.addEventListener("click", async () => {
     btn.disabled = true;
