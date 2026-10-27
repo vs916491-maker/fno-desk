@@ -7,12 +7,13 @@ trade when its exit rule says so. Sessions after the entry day are checked
 in order; inside one session the stop is checked before the target.
 
 Exit rules
-  system       stop, target (if set), the first close below the 50-day
-               average, or 120 sessions - the rules the website's track
-               record tests
-  stop_target  stop or target only; a close below the 50-day average is
-               shown as a warning
+  stop_target  (and the older "system") closed automatically ONLY when the
+               stop you entered is hit. Reaching the target, a close below the
+               50-day average and 120+ sessions are shown as warnings only.
   manual       never closed automatically; warnings only
+
+Trades that an earlier version closed for a 50-day / time / target reason are
+re-opened (and then checked against their stop only).
 
 P&L: (exit - entry) x quantity, minus your charges if you entered them,
 otherwise minus 0.25% of the buy value (typical delivery costs).
@@ -65,14 +66,8 @@ def check(tr: dict, df: pd.DataFrame, today: date) -> dict:
     n = 0
     for d, c in after.iterrows():
         n += 1
-        if rule != "manual" and stop and c.Low <= stop:
+        if rule != "manual" and stop and c.Low <= stop:   # only your stop closes a trade
             reason, price = "Stop (auto)", min(float(stop), float(c.Open))
-        elif rule != "manual" and target and c.High >= target:
-            reason, price = "Target (auto)", max(float(target), float(c.Open))
-        elif rule == "system" and pd.notna(c.SMA50) and c.Close < c.SMA50:
-            reason, price = "Closed below 50-day (auto)", float(c.Close)
-        elif rule == "system" and n >= MAX_SESSIONS:
-            reason, price = f"Time, {MAX_SESSIONS} sessions (auto)", float(c.Close)
         if reason:
             when = d
             break
@@ -85,6 +80,8 @@ def check(tr: dict, df: pd.DataFrame, today: date) -> dict:
                      "exit_reason": reason, "pnl_inr": net, "net_pct": pct, "alert": None})
         return vals
     alerts = []
+    if target and (after.High >= float(target)).any():
+        alerts.append("Target reached")
     if pd.notna(last.SMA50) and last.Close < last.SMA50:
         alerts.append("Closed below its 50-day average")
     if stop and last.Close <= float(stop):
@@ -141,10 +138,34 @@ def watchlist(db, today: date) -> None:
     print(f"::notice::Watchlist setups checked: {n} of {len(rows)}")
 
 
+OLD_AUTO_EXITS = ("Closed below 50-day (auto)", "Target (auto)")
+
+
+def reopen(db) -> None:
+    """Re-open trades an earlier version closed for anything other than the stop."""
+    try:
+        closed = db.select("cash_trades", {"status": "eq.closed"})
+    except Exception:  # noqa: BLE001
+        return
+    for tr in closed:
+        why = tr.get("exit_reason") or ""
+        if why in OLD_AUTO_EXITS or (why.startswith("Time,") and why.endswith("(auto)")):
+            db.update("cash_trades", {"id": f"eq.{tr['id']}"},
+                      {"status": "open", "exit": None, "exit_date": None, "exit_reason": None,
+                       "pnl_inr": None, "net_pct": None, "exit_rule": "stop_target"})
+            print(f"::notice::{tr['symbol']} re-opened (it had been closed by '{why}', not by its stop)")
+    # older open trades on the old default rule: same behaviour now, label it clearly
+    try:
+        db.update("cash_trades", {"status": "eq.open", "exit_rule": "eq.system"}, {"exit_rule": "stop_target"})
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main() -> int:
     db = store.connect()
     today = datetime.now(ZoneInfo(config.TZ)).date()
     watchlist(db, today)
+    reopen(db)
     try:
         trades = db.select("cash_trades", {"status": "eq.open"})
     except Exception as exc:  # noqa: BLE001
