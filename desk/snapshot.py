@@ -247,7 +247,9 @@ def main() -> int:
         fut_now.setdefault(r["symbol"], {})[r["expiry"]] = r["ltp"]
     spots = {c["symbol"]: c["spot"] for c in cards}
     try:
-        closed = journal.check_index_trades(db, fut_now, spots, t)
+        tprices: dict = {}
+        closed = journal.check_index_trades(db, fut_now, spots, t, tprices)
+        db.put_doc("trade_prices_index", {"ts": t.strftime("%Y-%m-%dT%H:%M"), "prices": tprices})
     except Exception as exc:  # noqa: BLE001
         closed = 0
         problems.append(f"journal: {exc}"[:200])

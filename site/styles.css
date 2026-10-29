@@ -384,3 +384,6 @@ textarea { min-height: 60px; resize: vertical; }
 .side-pick.short:has(input:checked) { border-color: var(--q-lagging); background: var(--q-lagging-wash, rgba(208,59,59,.07)); }
 .dot-side { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
 .dot-side.long { background: var(--q-leading); } .dot-side.short { background: var(--q-lagging); }
+
+/* live price / P&L of open trades */
+td.live-cell small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; margin-top: 2px; }

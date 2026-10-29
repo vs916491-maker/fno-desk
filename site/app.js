@@ -766,8 +766,27 @@ async function viewWatch(app) {
     section("Long"), section("Short"));
 }
 
+/* Current price and unrealised P&L of an open trade, from the latest scan (stocks:
+   hourly screener / Run scan; index futures: every 15 minutes). */
+function livePnl(t, tp) {
+  const p = tp?.prices?.[String(t.id)];
+  if (!p || !isNum(p.px) || !isNum(t.entry)) return null;
+  const dir = t.side === "Long" ? 1 : -1;
+  let pctv, inrv = null, basis = "";
+  if (t.kind === "index") {
+    pctv = (p.px / t.entry - 1) * 100 * dir;
+    if (t.lot_size) { inrv = (p.px - t.entry) * dir * (t.lots || 1) * t.lot_size - (t.charges || 0); basis = `${t.lots || 1} lot × ${t.lot_size}`; }
+  } else {
+    pctv = (p.px / t.entry - 1) * 100 * dir - 0.1;                      // same 0.1% costs as a closed trade
+    const q = t.qty || p.lot;
+    if (q) { inrv = (p.px - t.entry) * dir * q - t.entry * q * 0.001; basis = t.qty ? `${t.qty} qty` : `1 lot = ${p.lot} shares`; }
+  }
+  return { px: p.px, t: p.t, pct: pctv, inr: inrv, basis };
+}
+
 async function viewTrades(app) {
   const all = await loadTrades();
+  const [tpStock, tpIndex] = LIVE ? await Promise.all([doc("trade_prices_stock").catch(() => null), doc("trade_prices_index").catch(() => null)]) : [null, null];
   const view = state.tradeView;
   const trades = all.filter((t) => view === "all" || t.kind === view);
   const open = trades.filter((t) => t.status === "open"), closed = trades.filter((t) => t.status === "closed");
@@ -826,6 +845,14 @@ async function viewTrades(app) {
     h("td", { class: "l name" }, t.symbol, chartLink(t.symbol, t.kind === "index" ? "fut" : "stock", "60"), h("small", null, t.kind === "index" ? `Index futures${t.lots ? `, ${t.lots} lot${t.lots > 1 ? "s" : ""}` : ""}` : (t.source || "stock"))),
     h("td", { class: "l" }, sideTag(t.side)),
     h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
+    ...(isOpen ? (() => {
+      const L = livePnl(t, t.kind === "index" ? tpIndex : tpStock);
+      return [
+        h("td", { class: "live-cell", title: L ? `Price at ${when(L.t)}` : "Updated by the next scan" }, L ? [fmt(L.px), h("small", null, when(L.t))] : h("span", { class: "muted" }, "–")),
+        h("td", { class: L ? sign(L.pct) : null }, L ? pct(L.pct) : "–"),
+        h("td", { class: `live-cell ${L && isNum(L.inr) ? sign(L.inr) : ""}`, title: L?.basis || (t.kind === "stock" ? "Add a quantity to see rupees" : "Add the lot size to see rupees") },
+          L && isNum(L.inr) ? [inr(L.inr), h("small", null, L.basis)] : "–")];
+    })() : []),
     isOpen ? null : h("td", null, fmt(t.exit)),
     isOpen ? null : h("td", { class: "l" }, t.exit_reason || "–"),
     isOpen ? null : h("td", { class: sign(t.net_pct_after_cost) }, pct(t.net_pct_after_cost)),
@@ -835,7 +862,7 @@ async function viewTrades(app) {
       isOpen ? h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit") : h("span", { class: "muted", title: "Closed trades are locked" }, "Locked"),
       h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteTrade(t.id); rerender(); } } }, "Delete"))));
   const table = (rows, isOpen) => h("table", null,
-    h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? [] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
+    h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? ["Now", "P&L %", "P&L ₹"] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
       h("th", { class: [0, 1, 2].includes(i) || c === "Reason" ? "l" : null }, c)))),
     h("tbody", null, rows.map((t) => row(t, isOpen))));
   const viewSeg = h("div", { class: "seg", role: "group", "aria-label": "Show" }, [["all", "All"], ["stock", "Stocks"], ["index", "Index futures"]].map(([k, l]) =>
@@ -845,7 +872,7 @@ async function viewTrades(app) {
     h("div", { class: "filters" }, viewSeg,
       h("button", { class: "btn primary", type: "button", onclick: () => tradeDialog({}, rerender) }, "Add a trade"),
       h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
-    h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions."),
+    h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions. \"Now\" is the price at the latest check: stocks every hour and when you press Run scan, index futures every 15 minutes. Stock P&L % is after 0.1% costs; P&L ₹ uses your quantity, or 1 lot if you did not enter one."),
     stats,
     monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed. Trade details are kept for 3 months; monthly totals are kept for good.")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, monthTable))) : null,

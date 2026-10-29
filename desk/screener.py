@@ -163,6 +163,34 @@ def already_scanned(db, now: datetime) -> bool:
         return False
 
 
+
+def save_trade_prices(db, candles: dict, now, lots: dict) -> int:
+    """Check open stock trades on these candles (auto-close at stop/target/time) and
+    save the current price of those still open for the My trades page."""
+    prices: dict = {}
+    closed = journal.check_stock_trades(db, candles, now, prices, lots)
+    db.put_doc("trade_prices_stock", {"ts": now.strftime("%Y-%m-%dT%H:%M"), "prices": prices})
+    return closed
+
+
+def quick_trade_prices(now, db=None) -> None:
+    """Only the open stock trades: fetch their candles and update prices (fast)."""
+    try:
+        db = db or store.connect()
+        trades = db.select("trades", {"kind": "eq.stock", "status": "eq.open"})
+        if not trades:
+            return
+        syms = sorted({t["symbol"] for t in trades})
+        candles = {s: yahoo_chart(f"{s}.NS", "60m", "1mo") for s in syms}
+        try:
+            lots = NSE().fno_lots()
+        except Exception:  # noqa: BLE001
+            lots = {}
+        closed = save_trade_prices(db, candles, now, lots)
+        print(f"::notice title=Open trades::prices updated for {len(syms)} stock(s), {closed} closed")
+    except Exception as exc:  # noqa: BLE001
+        print(f"::warning::open-trade prices: {exc}")
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true")
@@ -170,10 +198,13 @@ def main() -> int:
     now = now_ist()
     if not args.force and (now.weekday() >= 5 or not ("10:10" <= now.strftime("%H:%M") <= "15:59")):
         print(f"{now:%a %H:%M} IST: outside scan hours.")
+        if now.weekday() < 5 and "09:15" <= now.strftime("%H:%M") <= "15:59":
+            quick_trade_prices(now)      # Run scan before 10:10: still refresh your open trades
         return 0
     db = store.connect()
     if not args.force and already_scanned(db, now):
         print("This candle has already been scanned (the other scheduler got there first).")
+        quick_trade_prices(now, db)
         return 0
     nse = NSE()
     problems: list[str] = []
@@ -264,7 +295,7 @@ def main() -> int:
 
     closed = 0
     try:
-        closed = journal.check_stock_trades(db, candles, now)
+        closed = save_trade_prices(db, candles, now, lots)
     except Exception as exc:  # noqa: BLE001
         problems.append(f"journal: {exc}"[:200])
 

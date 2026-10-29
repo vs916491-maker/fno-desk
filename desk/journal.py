@@ -48,7 +48,8 @@ def _close_values(tr: dict, exit_price: float, reason: str, when: datetime) -> d
     return vals
 
 
-def check_index_trades(db, fut_now: dict, spots: dict, now: datetime) -> int:
+def check_index_trades(db, fut_now: dict, spots: dict, now: datetime, prices: dict | None = None) -> int:
+    """prices (optional): filled with {trade id: {"px", "t"}} for trades that stay open."""
     trades = db.select("trades", {"kind": "eq.index", "status": "eq.open"})
     closed = 0
     for tr in trades:
@@ -80,10 +81,13 @@ def check_index_trades(db, fut_now: dict, spots: dict, now: datetime) -> int:
         if reason:
             db.update("trades", {"id": f"eq.{tr['id']}"}, _close_values(tr, float(exit_price), reason, now))
             closed += 1
+        elif prices is not None:
+            prices[str(tr["id"])] = {"px": round(float(price), 2), "t": now.strftime("%Y-%m-%dT%H:%M")}
     return closed
 
 
-def check_stock_trades(db, candles: dict[str, pd.DataFrame], now: datetime) -> int:
+def check_stock_trades(db, candles: dict[str, pd.DataFrame], now: datetime, prices: dict | None = None,
+                       lots: dict | None = None) -> int:
     """candles: symbol -> hourly OHLC (IST index). Walks each open trade's candles
     after entry; the stop is checked before the target inside the same candle."""
     trades = db.select("trades", {"kind": "eq.stock", "status": "eq.open"})
@@ -118,4 +122,8 @@ def check_stock_trades(db, candles: dict[str, pd.DataFrame], now: datetime) -> i
         if reason:
             db.update("trades", {"id": f"eq.{tr['id']}"}, _close_values(tr, float(exit_price), reason, when))
             closed += 1
+        elif prices is not None:
+            px = df.attrs.get("price") or float(df.Close.iloc[-1])
+            prices[str(tr["id"])] = {"px": round(float(px), 2), "t": now.strftime("%Y-%m-%dT%H:%M"),
+                                     "lot": (lots or {}).get(tr["symbol"])}
     return closed
