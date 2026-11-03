@@ -42,10 +42,24 @@ def _close_values(tr: dict, exit_price: float, reason: str, when: datetime) -> d
         vals["net_pct_after_cost"] = round((exit_price / entry - 1) * 100 * sign, 3)
     else:
         vals["net_pct_after_cost"] = _pct(entry, exit_price, side)
-        if tr.get("qty"):
-            vals["pnl_inr"] = round((exit_price - entry) * (1 if side == "Long" else -1) * float(tr["qty"])
-                                    - entry * float(tr["qty"]) * config.COST_PCT / 100, 2)
+        q = stock_qty(tr)
+        if q:
+            vals["pnl_inr"] = stock_inr(tr, exit_price, q)
     return vals
+
+
+def stock_qty(tr: dict):
+    """Shares traded: lots x lot size (F&O stock futures); an older trade's quantity otherwise."""
+    if tr.get("lot_size"):
+        return float(tr.get("lots") or 1) * float(tr["lot_size"])
+    return float(tr["qty"]) if tr.get("qty") else None
+
+
+def stock_inr(tr: dict, exit_price: float, q: float) -> float:
+    """Long: (sell - buy) x shares; Short: (sell - buy) x shares with sell = entry, buy = exit.
+    Minus your charges if you entered them."""
+    sign = 1 if tr["side"] == "Long" else -1
+    return round((exit_price - float(tr["entry"])) * sign * q - float(tr.get("charges") or 0), 2)
 
 
 def check_index_trades(db, fut_now: dict, spots: dict, now: datetime, prices: dict | None = None) -> int:

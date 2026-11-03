@@ -326,7 +326,7 @@ function tradeDialog(prefill, onSaved) {
   const err = h("p", { class: "err", role: "alert" });
   const form = h("form", { method: "dialog" },
     h("h2", null, prefill.id ? "Edit trade" : prefill.symbol ? `I took this trade: ${prefill.symbol}` : "Add a trade"),
-    h("p", { class: "note" }, isIndex ? "Index futures, P&L in rupees (points × lots × lot size − charges)." : "Stock trade, P&L in % after 0.1% costs (add quantity for rupees)."),
+    h("p", { class: "note" }, `${isIndex ? "Index futures" : "Stock futures"}. P&L ₹ = (sell − buy) × lots × lot size − charges: for a long, sell is the exit and buy the entry; for a short, sell is the entry and buy the exit.${isIndex ? "" : " P&L % is after 0.1% costs."}`),
     h("div", { class: "form-grid" },
       h("label", null, "Type", h("select", { name: "kind" },
         ["stock", "index"].map((k) => h("option", { value: k, selected: t.kind === k || null }, k === "stock" ? "Stock" : "Index futures")))),
@@ -336,10 +336,10 @@ function tradeDialog(prefill, onSaved) {
       field("Entry", "entry", { type: "number", step: "any", required: true }),
       field("Stop", "stop", { type: "number", step: "any" }),
       field("Target", "target", { type: "number", step: "any" }),
-      isIndex ? field("Lots", "lots", { type: "number", step: "1", min: "1", value: t.lots ?? 1 }) : field("Quantity (optional)", "qty", { type: "number", step: "1" }),
-      isIndex ? field("Lot size", "lot_size", { type: "number", step: "1" }) : null,
+      field("Lots", "lots", { type: "number", step: "1", min: "1", value: t.lots ?? 1 }),
+      field("Lot size", "lot_size", { type: "number", step: "1", placeholder: isIndex ? "" : "filled from NSE if empty" }),
       isIndex ? field("Futures expiry", "expiry", { type: "date" }) : null,
-      isIndex ? field("Charges ₹ (optional)", "charges", { type: "number", step: "any" }) : null,
+      field("Charges ₹ (optional)", "charges", { type: "number", step: "any" }),
       isIndex ? field("Method", "method") : null,
       h("label", { class: "wide" }, "Notes", h("textarea", { name: "notes" }, t.notes || ""))),
     err,
@@ -355,9 +355,8 @@ function tradeDialog(prefill, onSaved) {
       entry: +v.entry, stop: v.stop ? +v.stop : null, target: v.target ? +v.target : null, notes: v.notes || null,
       source: t.source || "manual",
     };
-    if (v.kind === "index") Object.assign(row, { lots: +v.lots || 1, lot_size: +v.lot_size || null, expiry: v.expiry || null,
-      charges: v.charges ? +v.charges : 0, method: v.method || null, instrument: "Futures" });
-    else row.qty = v.qty ? +v.qty : null;
+    Object.assign(row, { lots: +v.lots || 1, lot_size: +v.lot_size || null, charges: v.charges ? +v.charges : 0 });
+    if (v.kind === "index") Object.assign(row, { expiry: v.expiry || null, method: v.method || null, instrument: "Futures" });
     try {
       if (prefill.id) await updateTrade(prefill.id, row); else await addTrade({ ...row, status: "open" });
       dlg.close();
@@ -417,13 +416,9 @@ function closeDialog(tr, onSaved) {
     e.preventDefault();
     const v = readForm(form), exit = +v.exit, dir = tr.side === "Long" ? 1 : -1;
     const vals = { exit, exit_time: v.exit_time, exit_reason: v.exit_reason, status: "closed" };
-    if (tr.kind === "index") {
-      vals.pnl_inr = +((exit - tr.entry) * dir * (tr.lots || 1) * (tr.lot_size || 1) - (tr.charges || 0)).toFixed(2);
-      vals.net_pct_after_cost = +(((exit / tr.entry) - 1) * 100 * dir).toFixed(3);
-    } else {
-      vals.net_pct_after_cost = +(((exit / tr.entry) - 1) * 100 * dir - 0.1).toFixed(3);
-      if (tr.qty) vals.pnl_inr = +((exit - tr.entry) * dir * tr.qty - tr.entry * tr.qty * 0.001).toFixed(2);
-    }
+    vals.net_pct_after_cost = +(((exit / tr.entry) - 1) * 100 * dir - (tr.kind === "index" ? 0 : 0.1)).toFixed(3);
+    const q = tradeQty(tr);
+    if (q) vals.pnl_inr = +((exit - tr.entry) * dir * q - (tr.charges || 0)).toFixed(2);
     try { await updateTrade(tr.id, vals); dlg.close(); onSaved && onSaved(); } catch (ex) { err.textContent = ex.message; }
   });
   dlg.replaceChildren(form);
@@ -439,7 +434,7 @@ async function viewStocks(app) {
   const early = d.early ? h("div", { class: "banner expiry" }, h("b", null, "Early scan. "),
     `No hourly candle has closed yet today (the first one closes at 10:15). These signals come from the previous session's candles, up to ${new Date(d.early.last_candle).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}, and the futures check covers only the first ${d.early.futures_minutes} minutes of today, so OI changes and scores are small. New signals for today start with the 10:19 scan.`) : null;
   const watch = (x) => watchDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
-    target: x.levels.target, lot_size: x.lot_size, source: "screener", signal_time: x.signal_time,
+    target: x.levels.target, lots: 1, lot_size: x.lot_size, source: "screener", signal_time: x.signal_time,
     method: `50 EMA cross ${x.signal_time.slice(11, 16)}${x.futures ? ` + ${x.futures.buildup}` : ""}` });
   const took = (x) => tradeDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
     target: x.levels.target, source: "scanner", notes: `50 EMA cross ${x.signal_time.slice(11, 16)} + ${x.futures.buildup}` }, () => { location.hash = "#/trades"; });
@@ -734,7 +729,7 @@ async function viewWatch(app) {
   const rerender = () => route();
   const daysLeft = (w) => { let n = 0, d = today; while (d < String(w.expires_on)) { d = marketDaysAfter(d, 1); n += 1; } return n; };
   const toTrade = (w) => tradeDialog({ kind: w.kind, symbol: w.symbol, side: w.side, entry: w.entry ?? undefined, stop: w.stop ?? undefined,
-    target: w.target ?? undefined, lots: w.kind === "index" ? 1 : undefined, lot_size: w.lot_size ?? undefined, expiry: w.expiry ?? undefined,
+    target: w.target ?? undefined, lots: 1, lot_size: w.lot_size ?? undefined, expiry: w.expiry ?? undefined,
     method: w.method ?? undefined, source: w.source === "swing signal" ? "swing signal" : "watchlist",
     notes: [w.method, w.notes].filter(Boolean).join("; ") }, async () => { try { await deleteWatch(w.id); } catch (e) { /* keep going */ } location.hash = "#/trades"; });
   const table = (list) => h("table", null,
@@ -766,21 +761,23 @@ async function viewWatch(app) {
     section("Long"), section("Short"));
 }
 
+/* Shares / units traded: lots × lot size; older stock trades may have a quantity instead. */
+function tradeQty(t, lotFallback) {
+  const lot = t.lot_size || lotFallback;
+  if (lot) return (t.lots || 1) * lot;
+  return t.qty || null;
+}
 /* Current price and unrealised P&L of an open trade, from the latest scan (stocks:
    hourly screener / Run scan; index futures: every 15 minutes). */
 function livePnl(t, tp) {
   const p = tp?.prices?.[String(t.id)];
   if (!p || !isNum(p.px) || !isNum(t.entry)) return null;
   const dir = t.side === "Long" ? 1 : -1;
-  let pctv, inrv = null, basis = "";
-  if (t.kind === "index") {
-    pctv = (p.px / t.entry - 1) * 100 * dir;
-    if (t.lot_size) { inrv = (p.px - t.entry) * dir * (t.lots || 1) * t.lot_size - (t.charges || 0); basis = `${t.lots || 1} lot × ${t.lot_size}`; }
-  } else {
-    pctv = (p.px / t.entry - 1) * 100 * dir - 0.1;                      // same 0.1% costs as a closed trade
-    const q = t.qty || p.lot;
-    if (q) { inrv = (p.px - t.entry) * dir * q - t.entry * q * 0.001; basis = t.qty ? `${t.qty} qty` : `1 lot = ${p.lot} shares`; }
-  }
+  const pctv = (p.px / t.entry - 1) * 100 * dir - (t.kind === "index" ? 0 : 0.1);   // same as when it closes
+  const lot = t.lot_size || p.lot;
+  const q = tradeQty(t, p.lot);
+  const inrv = q ? (p.px - t.entry) * dir * q - (t.charges || 0) : null;
+  const basis = lot ? `${t.lots || 1} lot${(t.lots || 1) > 1 ? "s" : ""} × ${lot}` : t.qty ? `${t.qty} qty` : "";
   return { px: p.px, t: p.t, pct: pctv, inr: inrv, basis };
 }
 
@@ -819,7 +816,7 @@ async function viewTrades(app) {
     stat("Average per trade", tot.pctN ? pct(tot.sum / tot.pctN) : "–", "Net % after costs", sign(tot.sum)),
     stat("Profit factor", isNum(pf) ? pf.toFixed(2) : "–", "Total % won ÷ total % lost"),
     stat("Net P&L in %", tot.pctN ? pct(tot.sum) : "–", "Sum of net % of closed trades", sign(tot.sum)),
-    stat("Net P&L in ₹", tot.inrN ? inr(tot.inr) : "–", "Index futures and stocks with quantity", sign(tot.inr)));
+    stat("Net P&L in ₹", tot.inrN ? inr(tot.inr) : "–", "Closed trades, lots × lot size", sign(tot.inr)));
 
   // month-wise: by the month a trade was closed (entry month if no exit time was recorded)
   const months = {};
@@ -842,7 +839,7 @@ async function viewTrades(app) {
 
   const row = (t, isOpen) => h("tr", { style: "cursor:default" },
     h("td", { class: "l" }, when(t.entry_time)),
-    h("td", { class: "l name" }, t.symbol, chartLink(t.symbol, t.kind === "index" ? "fut" : "stock", "60"), h("small", null, t.kind === "index" ? `Index futures${t.lots ? `, ${t.lots} lot${t.lots > 1 ? "s" : ""}` : ""}` : (t.source || "stock"))),
+    h("td", { class: "l name" }, t.symbol, chartLink(t.symbol, t.kind === "index" ? "fut" : "stock", "60"), h("small", null, `${t.kind === "index" ? "Index futures" : (t.source || "stock")}${t.lot_size ? ` · ${t.lots || 1} × ${t.lot_size}` : ""}`)),
     h("td", { class: "l" }, sideTag(t.side)),
     h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
     ...(isOpen ? (() => {
@@ -872,7 +869,7 @@ async function viewTrades(app) {
     h("div", { class: "filters" }, viewSeg,
       h("button", { class: "btn primary", type: "button", onclick: () => tradeDialog({}, rerender) }, "Add a trade"),
       h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
-    h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions. \"Now\" is the price at the latest check: stocks every hour and when you press Run scan, index futures every 15 minutes. Stock P&L % is after 0.1% costs; P&L ₹ uses your quantity, or 1 lot if you did not enter one."),
+    h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions. \"Now\" is the price at the latest check: stocks every hour and when you press Run scan, index futures every 15 minutes. P&L ₹ = (sell − buy) × lots × lot size − charges (long: sell = exit, buy = entry; short: sell = entry, buy = exit). Stock P&L % is after 0.1% costs."),
     stats,
     monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed. Trade details are kept for 3 months; monthly totals are kept for good.")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, monthTable))) : null,

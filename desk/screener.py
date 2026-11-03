@@ -167,6 +167,17 @@ def already_scanned(db, now: datetime) -> bool:
 def save_trade_prices(db, candles: dict, now, lots: dict) -> int:
     """Check open stock trades on these candles (auto-close at stop/target/time) and
     save the current price of those still open for the My trades page."""
+    # stock trades without a lot size: take today's F&O lot size (1 lot), and fill in the
+    # rupee P&L of closed ones that had none
+    if lots:
+        for tr in db.select("trades", {"kind": "eq.stock", "lot_size": "is.null"}):
+            lot = lots.get(tr["symbol"])
+            if not lot:
+                continue
+            vals = {"lot_size": lot, "lots": tr.get("lots") or 1}
+            if tr["status"] == "closed" and tr.get("exit") is not None and tr.get("pnl_inr") is None:
+                vals["pnl_inr"] = journal.stock_inr({**tr, **vals}, float(tr["exit"]), journal.stock_qty({**tr, **vals}))
+            db.update("trades", {"id": f"eq.{tr['id']}"}, vals)
     prices: dict = {}
     closed = journal.check_stock_trades(db, candles, now, prices, lots)
     db.put_doc("trade_prices_stock", {"ts": now.strftime("%Y-%m-%dT%H:%M"), "prices": prices})
