@@ -805,13 +805,21 @@ async function viewTrades(app) {
     g.n += r.trades; g.pctN += r.pct_count; g.w += r.wins; g.sum += r.sum_pct; g.gain += r.gain_pct;
     g.loss += r.loss_pct; g.inrN += r.inr_count; g.inr += r.pnl_inr;
   };
+  // financial year (April–March), by the month a trade was closed; "2026-11" -> 2026 (FY 2026-27)
+  const closeMonth = (t) => String(t.exit_time || t.entry_time || "").slice(0, 7);
+  const fyOf = (m) => { const y = +m.slice(0, 4), mo = +m.slice(5, 7); return mo >= 4 ? y : y - 1; };
+  const fyLabel = (y) => `FY ${y}-${String((y + 1) % 100).padStart(2, "0")}`;
+  const now = new Date();
+  const curFy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  // totals at the top: current financial year only (starts fresh every 1 April)
   const tot = blank();
-  closed.forEach((t) => addTrade(tot, t));
-  archive.forEach((r) => addMonth(tot, r));
+  closed.forEach((t) => { const m = closeMonth(t); if (m && fyOf(m) === curFy) addTrade(tot, t); });
+  archive.forEach((r) => { if (fyOf(r.month) === curFy) addMonth(tot, r); });
   const pf = tot.loss < 0 ? tot.gain / Math.abs(tot.loss) : null;
-  const archivedN = archive.reduce((a2, r) => a2 + r.trades, 0);
+  const archivedN = archive.filter((r) => fyOf(r.month) === curFy).reduce((a2, r) => a2 + r.trades, 0);
+  const openNote = `${open.length} open${archivedN ? ` · ${archivedN} older than 3 months kept as monthly totals` : ""}`;
   const stats = h("div", { class: "stats" },
-    stat("Closed trades", tot.n, `${open.length} open${archivedN ? ` · ${archivedN} older than 3 months kept as monthly totals` : ""}`),
+    stat("Closed trades", tot.n, openNote),
     stat("Win rate", tot.pctN ? `${Math.round((tot.w / tot.pctN) * 100)}%` : "–", `${tot.w} won, ${tot.pctN - tot.w} lost`),
     stat("Average per trade", tot.pctN ? pct(tot.sum / tot.pctN) : "–", "Net % after costs", sign(tot.sum)),
     stat("Profit factor", isNum(pf) ? pf.toFixed(2) : "–", "Total % won ÷ total % lost"),
@@ -837,6 +845,25 @@ async function viewTrades(app) {
     h("thead", null, h("tr", null, ["Month", "Trades", "Won / lost", "Win rate", "Net %", "Avg per trade", "Profit factor", "Net ₹"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))),
     h("tbody", null, monthRows));
 
+  // year by year: completed financial years (Apr–Mar); the running year stays in the totals at the top
+  const years = {};
+  for (const m of Object.keys(months)) {
+    const y = fyOf(m);
+    if (y >= curFy) continue;
+    const g = years[y] ||= blank(), s = months[m];
+    for (const k of Object.keys(g)) g[k] += s[k];
+  }
+  const yearRows = Object.keys(years).map(Number).sort((a2, b2) => b2 - a2).map((y) => {
+    const g = years[y];
+    return h("tr", { style: "cursor:default" }, h("td", { class: "l name" }, fyLabel(y), h("small", null, `Apr ${y} – Mar ${y + 1}`)), h("td", null, g.n),
+      h("td", null, `${g.w} / ${g.pctN - g.w}`), h("td", null, g.pctN ? `${Math.round((g.w / g.pctN) * 100)}%` : "–"),
+      h("td", { class: sign(g.sum) }, pct(g.sum)), h("td", { class: sign(g.sum) }, g.pctN ? pct(g.sum / g.pctN) : "–"),
+      h("td", null, g.loss < 0 ? (g.gain / Math.abs(g.loss)).toFixed(2) : g.pctN ? "∞" : "–"), h("td", { class: sign(g.inr) }, g.inrN ? inr(g.inr) : "–"));
+  });
+  const yearTable = h("table", null,
+    h("thead", null, h("tr", null, ["Financial year", "Trades", "Won / lost", "Win rate", "Net %", "Avg per trade", "Profit factor", "Net ₹"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))),
+    h("tbody", null, yearRows));
+
   const row = (t, isOpen) => h("tr", { style: "cursor:default" },
     h("td", { class: "l" }, when(t.entry_time)),
     h("td", { class: "l name" }, t.symbol, chartLink(t.symbol, t.kind === "index" ? "fut" : "stock", "60"), h("small", null, `${t.kind === "index" ? "Index futures" : (t.source || "stock")}${t.lot_size ? ` · ${t.lots || 1} × ${t.lot_size}` : ""}`)),
@@ -857,7 +884,7 @@ async function viewTrades(app) {
     h("td", { class: "l" }, h("div", { class: "btn-row" },
       isOpen ? h("button", { class: "btn small", type: "button", onclick: () => closeDialog(t, rerender) }, "Close") : null,
       isOpen ? h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit") : h("span", { class: "muted", title: "Closed trades are locked" }, "Locked"),
-      h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteTrade(t.id); rerender(); } } }, "Delete"))));
+      isOpen ? h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteTrade(t.id); rerender(); } } }, "Delete") : null)));
   const table = (rows, isOpen) => h("table", null,
     h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? ["Now", "P&L %", "P&L ₹"] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
       h("th", { class: [0, 1, 2].includes(i) || c === "Reason" ? "l" : null }, c)))),
@@ -870,7 +897,11 @@ async function viewTrades(app) {
       h("button", { class: "btn primary", type: "button", onclick: () => tradeDialog({}, rerender) }, "Add a trade"),
       h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
     h("p", { class: "note" }, "Open trades close automatically: stocks at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions. \"Now\" is the price at the latest check: stocks every hour and when you press Run scan, index futures every 15 minutes. P&L ₹ = (sell − buy) × lots × lot size − charges (long: sell = exit, buy = entry; short: sell = entry, buy = exit). Stock P&L % is after 0.1% costs."),
+    h("div", { class: "section-head" }, h("h2", null, `This financial year · ${fyLabel(curFy)}`),
+      h("p", null, `Closed trades from 1 Apr ${curFy} to 31 Mar ${curFy + 1}. On 1 April the totals start fresh and this year moves to “Year by year”.`)),
     stats,
+    yearRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Year by year"), h("p", null, "Completed financial years (April–March), by the date trades were closed.")),
+      h("div", { class: "panel" }, h("div", { class: "table-scroll" }, yearTable))) : null,
     monthRows.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Month by month"), h("p", null, "Closed trades, by the month they were closed. Trade details are kept for 3 months; monthly totals are kept for good.")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, monthTable))) : null,
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Open (${open.length})`)),

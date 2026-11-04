@@ -40,8 +40,9 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 
 ## Rules / decisions to keep
 - Index trades: swing only, no automatic paper trades.
-- Closed trades are locked from editing but can be deleted.
+- Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted).
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).
+- My Trades totals at the top cover the current financial year only (Apr–Mar) and start fresh each 1 April; completed years show in "Year by year".
 - Stock names link to TradingView (his saved layout with 50 EMA + RSI).
 - NSE/BSE endpoints are unofficial and change without notice; each run reports problems in its summary.
 
