@@ -1018,7 +1018,7 @@ async function viewRecord(app) {
   const ranking = [
     ["Live Top 5", "Rank 1–5 in the scan that first listed it", ideas.filter((r) => r.top_rank)],
     ["Not in live Top 5", null, ideas.filter((r) => !r.top_rank)],
-    ["Proposed score Top 5", "Signal-hour OI 45, day OI 30, candle 25, + sector", ideas.filter((r) => r.rank_v2 && r.rank_v2 <= 5)],
+    ["Proposed score Top 5", "Signal-hour OI 35, day OI 25, candle 40, + sector", ideas.filter((r) => r.rank_v2 && r.rank_v2 <= 5)],
     ["All ideas", null, ideas],
     ["Rejected by the day's futures", "Day build-up against the trade; not shown as ideas", rejected],
   ];

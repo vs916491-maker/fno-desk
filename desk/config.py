@@ -117,9 +117,9 @@ CHOP_BARS = 21                    # about 3 sessions of hourly candles before th
 WARN_CHOP_CROSSES = 3             # this many 50 EMA crosses before the signal: choppy
 
 # Proposed score (logged only; the live Top 5 still uses TOP5_WEIGHTS + SECTOR_BOOST).
-# Signal-hour OI 45, day OI 30, candle 25 (within the allowed solid-candle band), plus the
+# Signal-hour OI 35, day OI 25, candle 40 (within the allowed solid-candle band), plus the
 # same sector boost. Volume is not scored (Yahoo hourly volume is patchy and overlaps with
 # OI); it stays a warning and a Track record group. The Track record tab shows how this
 # score's Top 5 would have done.
-V2_WEIGHTS = {"hour_oi": 45.0, "day_oi": 30.0, "candle": 25.0}
+V2_WEIGHTS = {"hour_oi": 35.0, "day_oi": 25.0, "candle": 40.0}
 V2_HOUR_OI_CAP = 5.0              # signal-hour OI change counted up to 5%

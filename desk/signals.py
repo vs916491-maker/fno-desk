@@ -10,7 +10,7 @@ Per signal (computed by the screener, desk/screener.py):
             candle on recent sessions, 50 EMA crosses in the ~3 sessions before
             (chop), stop distance, results date, F&O ban, market regime light.
   warnings  plain-language flags from the above. Warnings never block an idea.
-  score_v2  proposed score (signal-hour OI 45, day OI 30, candle 25, plus the same
+  score_v2  proposed score (signal-hour OI 35, day OI 25, candle 40, plus the same
             sector boost; volume not scored). Logged only; the live Top 5 is unchanged.
 
 Log (Supabase table signal_log, supabase/010_signal_log.sql): every idea, and every
