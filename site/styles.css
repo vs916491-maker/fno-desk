@@ -416,3 +416,5 @@ details.run { margin-bottom: 10px; }
 details.run > summary { cursor: pointer; padding: 8px 2px; font-size: 14px; list-style-position: inside; }
 details.run > summary .flag { margin-left: 6px; }
 details.run > .panel { margin-top: 4px; }
+.star { color: #e09a10; font-weight: 700; margin-right: 4px; }
+.star-note { color: #b57700; font-weight: 600; margin-left: 6px; }

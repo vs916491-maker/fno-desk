@@ -439,8 +439,9 @@ async function viewStocks(app) {
   const took = (x) => tradeDialog({ kind: "stock", symbol: x.symbol, side: x.side, entry: x.levels.entry, stop: x.levels.stop,
     target: x.levels.target, source: "scanner", notes: `50 EMA cross ${x.signal_time.slice(11, 16)} + ${x.futures.buildup}` }, () => { location.hash = "#/trades"; });
 
-  const topCards = top.map((x) => h("div", { class: "idea top" },
-    h("h3", null, h("span", null, h("span", { class: "rank" }, `#${x.top_rank}`), " ", x.symbol, " ", chartLink(x.symbol)), h("small", null, `score ${Math.round(x.scoring.score)}`)),
+  const topCards = () => top.map((x) => h("div", { class: "idea top" },
+    h("h3", null, h("span", null, h("span", { class: "rank" }, `#${x.top_rank}`), " ", starOf(x) ? h("span", { class: "star", title: `In the Top 5 now and seen in ${starOf(x)} runs today` }, "★") : null, x.symbol, " ", chartLink(x.symbol)),
+      h("small", null, starOf(x) ? `${starOf(x)} runs · score ${Math.round(x.scoring.score)}` : `score ${Math.round(x.scoring.score)}`)),
     h("div", { class: "btn-row" }, sideTag(x.side), h("span", { class: "meta" }, `signal ${x.signal_time.slice(11, 16)}, ${x.entry_status}`),
       x.lot_size ? h("span", { class: "flag fno" }, `lot ${x.lot_size}`) : null),
     levelsBox(x.levels),
@@ -462,18 +463,33 @@ async function viewStocks(app) {
   let runs = dayDoc && dayDoc.date === String(d.ts).slice(0, 10) && (dayDoc.runs || []).length ? dayDoc.runs.slice() : [];
   if (!runs.some((r) => r.ts === d.ts)) runs.push({ ts: d.ts, early: Boolean(d.early), ideas, others: (d.others || []).length });
   runs.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
-  const seen = new Set(), firstRun = {};
-  runs.forEach((r, i) => (r.ideas || []).forEach((x) => {
-    const k = `${x.symbol}|${x.side}|${x.signal_time}`;
-    x.repeat = seen.has(k) ? firstRun[k] : null;
-    if (!seen.has(k)) { seen.add(k); firstRun[k] = i + 1; }
-  }));
+  // repeats: the same stock and side seen in an earlier run today; star = repeat and in that run's Top 5
+  const seen = new Set(), firstRun = {}, runCount = {};
+  runs.forEach((r, i) => {
+    const inRun = new Set();
+    (r.ideas || []).forEach((x) => {
+      const k = `${x.symbol}|${x.side}`;
+      x.repeat = seen.has(k) ? firstRun[k] : null;
+      if (!inRun.has(k)) { runCount[k] = (runCount[k] || 0) + 1; inRun.add(k); }
+      x.runs_seen = runCount[k];
+      x.star = Boolean(x.repeat && x.top_rank);
+      if (!seen.has(k)) { seen.add(k); firstRun[k] = i + 1; }
+    });
+    const rank = (x) => (x.star ? 0 : x.top_rank ? 1 : 2);
+    r.ideas = (r.ideas || []).slice().sort((a, b) => rank(a) - rank(b) || (a.top_rank || 9) - (b.top_rank || 9)
+      || String(b.signal_time).localeCompare(String(a.signal_time)));
+  });
+  const latest = runs.find((r) => r.ts === d.ts) || runs[runs.length - 1];
+  const starMap = {};
+  (latest?.ideas || []).forEach((x) => { if (x.star) starMap[`${x.symbol}|${x.side}`] = x.runs_seen; });
+  const starOf = (x) => starMap[`${x.symbol}|${x.side}`] || 0;
   const ideaTable = (list) => h("table", null,
     h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures today", "OI chg", "Signal hour", "Warnings", "Score", "Proposed", ""].map((c, i) =>
       h("th", { class: i < 2 ? "l" : null }, c)))),
     h("tbody", null, list.map((x) => h("tr", { style: "cursor:default" },
-      h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null,
-        x.repeat ? h("span", { class: "flag", title: `Same signal as in Run ${x.repeat}` }, `also Run ${x.repeat}`) : null, chartLink(x.symbol)),
+      h("td", { class: "l name" }, x.star ? h("span", { class: "star", title: `In this run's Top 5 and seen in ${x.runs_seen} runs today` }, "★") : null,
+        x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null,
+        x.repeat ? h("span", { class: "flag", title: `${x.symbol} ${x.side} first appeared in Run ${x.repeat}; seen in ${x.runs_seen} runs so far` }, `also Run ${x.repeat}`) : null, chartLink(x.symbol)),
       h("td", { class: "l" }, sideTag(x.side)),
       h("td", null, x.signal_time.slice(11, 16)),
       h("td", null, fmt(x.levels.entry)), h("td", null, fmt(x.levels.stop)), h("td", null, fmt(x.levels.target)),
@@ -500,16 +516,18 @@ async function viewStocks(app) {
     h("p", { class: "intro" }, "A solid hourly candle closes across the 50 EMA, and futures show fresh build-up in the same direction. Entry at the next candle's open, stop beyond the breakout candle or recent swing (whichever is closer), target 1:2, exit on a close back across the 50 EMA or after 5 sessions. Amber notes are warnings (results, F&O ban, stop distance, daily trend, market regime, volume, candle size, chop, signal-hour OI); they never remove an idea. Every idea is logged in Track record."),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, "Top 5"),
       h("p", null, "Candle clarity 60% + OI change 40%, plus 10 points when the stock's sector leads in the trade's direction")),
-      top.length ? h("div", { class: "ideas" }, topCards) : h("p", { class: "empty" }, "No confirmed ideas in this scan.")),
+      top.length ? h("div", { class: "ideas" }, topCards()) : h("p", { class: "empty" }, "No confirmed ideas in this scan.")),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `All trade ideas today (${seen.size})`),
       h("p", null, `${runs.length} run${runs.length === 1 ? "" : "s"}, newest first. Kept for the day; a new day starts fresh.`)),
       runs.slice().reverse().map((r, i) => {
         const n = runs.length - i, list = r.ideas || [];
         const tops = list.filter((x) => x.top_rank).sort((a, b) => a.top_rank - b.top_rank).map((x) => x.symbol);
         const fresh = list.filter((x) => !x.repeat).length;
+        const stars = list.filter((x) => x.star).map((x) => x.symbol);
         return h("details", { class: "run", open: i === 0 || null },
           h("summary", null, h("b", null, `Run ${n} · ${String(r.ts).slice(11, 16)}`), r.early ? h("span", { class: "flag" }, "early") : null,
-            h("span", { class: "muted" }, ` ${list.length} idea${list.length === 1 ? "" : "s"}${fresh !== list.length ? ` (${fresh} new)` : ""}${tops.length ? ` · Top 5: ${tops.join(", ")}` : ""}`)),
+            h("span", { class: "muted" }, ` ${list.length} idea${list.length === 1 ? "" : "s"}${fresh !== list.length ? ` (${fresh} new)` : ""}${tops.length ? ` · Top 5: ${tops.join(", ")}` : ""}`),
+            stars.length ? h("span", { class: "star-note" }, ` · ★ ${stars.join(", ")}`) : null),
           list.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, ideaTable(list))) : h("p", { class: "empty" }, "No ideas in this run."));
       })),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Other trend switches (${others.length})`), h("p", null, "50 EMA crosses that did not qualify")),
@@ -1208,7 +1226,8 @@ function viewReadme(app) {
       h("h3", { class: "readme-h" }, "7. All trade ideas today"),
       list([
         "Every run's ideas are kept for the day, grouped as Run 1 (about 10:19), Run 2 (11:19) … plus any Run scanner presses. The latest run is open; earlier runs are folded.",
-        "A signal already seen in an earlier run is tagged \u201calso Run N\u201d (a signal stays valid for two scans). The list starts fresh each day.",
+        "A stock (same side) already seen in an earlier run is tagged \u201calso Run N\u201d. The list starts fresh each day.",
+        "\u2605 Star priority: the stock appeared in an earlier run today and is in the current run's Top 5. Starred stocks are listed first in their run and marked on the Top 5 cards with the number of runs they appeared in.",
       ])),
 
     sec("Proposed score", "Testing only: shown on each idea as \u201cProposed\u201d and logged, but not used for the Top 5",
