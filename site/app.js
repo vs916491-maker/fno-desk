@@ -483,7 +483,7 @@ async function viewStocks(app) {
     pageHead("F&O stock screener", `Last scan ${when(d.ts)}, ${d.scanned} F&O stocks`),
     scanBar(d.ts),
     early,
-    h("p", { class: "intro" }, "A solid hourly candle closes across the 50 EMA, and futures show fresh build-up in the same direction. Entry at the next candle's open, stop beyond the breakout candle or recent swing (whichever is closer), target 1:2, exit on a close back across the 50 EMA or after 5 sessions. Amber notes are warnings (results, F&O ban, stop distance, daily trend, market regime, volume, chop, signal-hour OI); they never remove an idea. Every idea is logged in Track record."),
+    h("p", { class: "intro" }, "A solid hourly candle closes across the 50 EMA, and futures show fresh build-up in the same direction. Entry at the next candle's open, stop beyond the breakout candle or recent swing (whichever is closer), target 1:2, exit on a close back across the 50 EMA or after 5 sessions. Amber notes are warnings (results, F&O ban, stop distance, daily trend, market regime, volume, candle size, chop, signal-hour OI); they never remove an idea. Every idea is logged in Track record."),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, "Top 5"),
       h("p", null, "Candle clarity 60% + OI change 40%, plus 10 points when the stock's sector leads in the trade's direction")),
       top.length ? h("div", { class: "ideas" }, topCards) : h("p", { class: "empty" }, "No confirmed ideas in this scan.")),
@@ -1018,7 +1018,7 @@ async function viewRecord(app) {
   const ranking = [
     ["Live Top 5", "Rank 1–5 in the scan that first listed it", ideas.filter((r) => r.top_rank)],
     ["Not in live Top 5", null, ideas.filter((r) => !r.top_rank)],
-    ["Proposed score Top 5", "Signal-hour OI 35, day OI 25, candle 40, + sector", ideas.filter((r) => r.rank_v2 && r.rank_v2 <= 5)],
+    ["Proposed score Top 5", "Signal-hour OI 35, day OI 25, candle shape 25 + size 15, + sector", ideas.filter((r) => r.rank_v2 && r.rank_v2 <= 5)],
     ["All ideas", null, ideas],
     ["Rejected by the day's futures", "Day build-up against the trade; not shown as ideas", rejected],
   ];
@@ -1043,6 +1043,9 @@ async function viewRecord(app) {
     ["Regime against the trade", "Long on Red, Short on Green", ideas.filter((r) => info(r).regime === regimeBad(r))],
     ["Breakout volume at or above usual", "Vs the same hourly candle, last 10 sessions", ideas.filter((r) => isNum(info(r).vol_ratio) && info(r).vol_ratio >= 1)],
     ["Breakout volume below usual", null, ideas.filter((r) => isNum(info(r).vol_ratio) && info(r).vol_ratio < 1)],
+    ["Small candle (under 0.6x usual range)", "Vs the same hourly candle, last 10 sessions", ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio < 0.6)],
+    ["Normal candle size (0.6–2.5x)", null, ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio >= 0.6 && info(r).size_ratio <= 2.5)],
+    ["Very big candle (over 2.5x)", null, ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio > 2.5)],
     ["Choppy (3+ EMA crosses before)", null, ideas.filter((r) => (info(r).ema_crosses || 0) >= 3)],
     ["Not choppy", null, ideas.filter((r) => (info(r).ema_crosses || 0) < 3)],
     ["Stop under 0.4%", null, ideas.filter((r) => isNum(risk(r)) && risk(r) < 0.4)],

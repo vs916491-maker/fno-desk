@@ -45,7 +45,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 - Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted).
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).
 - My Trades totals at the top cover the current financial year only (Apr–Mar) and start fresh each 1 April; completed years show in "Year by year".
-- Stock screener: day futures build-up stays the filter; signal-hour OI and the other checks (results, F&O ban, stop < 0.4% or > 2.5%, daily trend vs 20-day average, regime light, breakout volume, chop) are **warnings only**. Sector boost unchanged until the signal log has enough data. Proposed score is logged, not live.
+- Stock screener: day futures build-up stays the filter; signal-hour OI and the other checks (results, F&O ban, stop < 0.4% or > 2.5%, daily trend vs 20-day average, regime light, breakout volume, small/very big candle, chop) are **warnings only**. Sector boost unchanged until the signal log has enough data. Proposed score (signal-hour OI 35, day OI 25, candle shape 25 + size 15, + sector 10) is logged, not live.
 - Stock names link to TradingView (his saved layout with 50 EMA + RSI).
 - NSE/BSE endpoints are unofficial and change without notice; each run reports problems in its summary.
 

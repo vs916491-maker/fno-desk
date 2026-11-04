@@ -113,13 +113,17 @@ WARN_RISK_MAX = 2.5               # stop further than this %: large risk for a 5
 DAILY_SMA = 20                    # daily trend: price vs its 20-day average
 VOL_SESSIONS = 10                 # breakout volume vs the same hourly candle over the last 10 sessions
 WARN_VOL_RATIO = 1.0              # below the usual volume for that hour
+WARN_SMALL_CANDLE = 0.6           # signal candle's range below 0.6x the usual for that hour: small candle
+WARN_BIG_CANDLE = 2.5             # above 2.5x: very big candle (entry far from the 50 EMA, wide stop)
 CHOP_BARS = 21                    # about 3 sessions of hourly candles before the signal
 WARN_CHOP_CROSSES = 3             # this many 50 EMA crosses before the signal: choppy
 
 # Proposed score (logged only; the live Top 5 still uses TOP5_WEIGHTS + SECTOR_BOOST).
-# Signal-hour OI 35, day OI 25, candle 40 (within the allowed solid-candle band), plus the
+# Signal-hour OI 35, day OI 25, candle 40 (shape 25 + size 15), plus the
 # same sector boost. Volume is not scored (Yahoo hourly volume is patchy and overlaps with
 # OI); it stays a warning and a Track record group. The Track record tab shows how this
 # score's Top 5 would have done.
-V2_WEIGHTS = {"hour_oi": 35.0, "day_oi": 25.0, "candle": 40.0}
+V2_WEIGHTS = {"hour_oi": 35.0, "day_oi": 25.0, "shape": 25.0, "size": 15.0}
+V2_SHAPE_FULL = 85.0              # candle shape: 0 at the weakest solid candle (58), full from clarity 85
+V2_SIZE_MIN, V2_SIZE_FULL = 0.5, 1.5   # candle size vs the usual range for that hour: 0 at 0.5x, full from 1.5x
 V2_HOUR_OI_CAP = 5.0              # signal-hour OI change counted up to 5%

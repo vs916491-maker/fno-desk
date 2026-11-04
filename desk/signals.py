@@ -10,7 +10,7 @@ Per signal (computed by the screener, desk/screener.py):
             candle on recent sessions, 50 EMA crosses in the ~3 sessions before
             (chop), stop distance, results date, F&O ban, market regime light.
   warnings  plain-language flags from the above. Warnings never block an idea.
-  score_v2  proposed score (signal-hour OI 35, day OI 25, candle 40, plus the same
+  score_v2  proposed score (signal-hour OI 35, day OI 25, candle shape 25 + size 15, plus the same
             sector boost; volume not scored). Logged only; the live Top 5 is unchanged.
 
 Log (Supabase table signal_log, supabase/010_signal_log.sql): every idea, and every
@@ -141,6 +141,19 @@ def volume_ratio(df: pd.DataFrame, j: int) -> float | None:
     return _r(float(v) / float(same.mean()))
 
 
+def size_ratio(df: pd.DataFrame, j: int) -> float | None:
+    """Signal candle's range vs the same hourly candle's average range over recent sessions."""
+    rng = float(df.High.iloc[j] - df.Low.iloc[j])
+    t, d = df.index[j].time(), df.index[j].date()
+    prev = df.iloc[:j]
+    same = prev[[(x.time() == t and x.date() != d) for x in prev.index]].tail(config.VOL_SESSIONS)
+    usual = (same.High - same.Low)
+    usual = usual[usual > 0]
+    if len(usual) < 3 or rng <= 0:
+        return None
+    return _r(rng / float(usual.mean()))
+
+
 def ema_crosses(df: pd.DataFrame, e: pd.Series, j: int) -> int:
     lo = max(1, j - config.CHOP_BARS)
     side = np.sign(df.Close.iloc[lo - 1:j].to_numpy() - e.iloc[lo - 1:j].to_numpy())
@@ -161,7 +174,7 @@ def context(df, e, j, side: str, lv: dict, results: dict | None, banned: bool, r
             today: date) -> dict:
     trend, vs_sma = daily_trend(df, j)
     rdate, rsess = results_sessions(results, today)
-    return {"daily_trend": trend, "vs_sma20_pct": vs_sma, "vol_ratio": volume_ratio(df, j),
+    return {"daily_trend": trend, "vs_sma20_pct": vs_sma, "vol_ratio": volume_ratio(df, j), "size_ratio": size_ratio(df, j),
             "ema_crosses": ema_crosses(df, e, j), "risk_pct": _r(lv.get("risk_pct")),
             "results_date": rdate, "results_sessions": rsess, "fo_ban": bool(banned), "regime": regime}
 
@@ -187,6 +200,11 @@ def warnings(side: str, info: dict, hourly: dict | None, check_hour: bool) -> li
     v = info.get("vol_ratio")
     if v is not None and v < config.WARN_VOL_RATIO:
         w.append(f"Breakout volume {v:.1f}x the usual for this hour")
+    z = info.get("size_ratio")
+    if z is not None and z < config.WARN_SMALL_CANDLE:
+        w.append(f"Small candle: {z:.1f}x the usual range for this hour")
+    elif z is not None and z > config.WARN_BIG_CANDLE:
+        w.append(f"Very big candle: {z:.1f}x the usual range for this hour (entry far from the 50 EMA, wide stop)")
     c = info.get("ema_crosses")
     if c is not None and c >= config.WARN_CHOP_CROSSES:
         w.append(f"Choppy: {c} crosses of the 50 EMA in the 3 sessions before")
@@ -198,7 +216,7 @@ def warnings(side: str, info: dict, hourly: dict | None, check_hour: bool) -> li
 
 
 # ------------------------------------------------------------------ proposed score (logged only)
-def score_v2(idea: dict, hourly: dict | None, boost: float) -> dict:
+def score_v2(idea: dict, hourly: dict | None, size: float | None, boost: float) -> dict:
     W = config.V2_WEIGHTS
     want = "Long build-up" if idea["side"] == "Long" else "Short build-up"
     day = min(abs(idea["futures"].get("pchg_oi") or 0), config.OI_CHANGE_CAP) / config.OI_CHANGE_CAP
@@ -206,10 +224,13 @@ def score_v2(idea: dict, hourly: dict | None, boost: float) -> dict:
         hour = min(abs(hourly["oi_pct"]), config.V2_HOUR_OI_CAP) / config.V2_HOUR_OI_CAP if hourly["buildup"] == want else 0.0
     else:
         hour = day                                    # no snapshot yet: lean on the day's reading
-    lo = (config.EF_BODY + config.EF_CLOSE_ZONE) / 2
-    cl = (idea["candle_body"] + idea["candle_extremity"]) / 2
-    candle = max(0.0, min(1.0, (cl - lo) / (1 - lo)))
-    parts = {"hour_oi": W["hour_oi"] * hour, "day_oi": W["day_oi"] * day, "candle": W["candle"] * candle}
+    lo = (config.EF_BODY + config.EF_CLOSE_ZONE) / 2 * 100
+    cl = (idea["candle_body"] + idea["candle_extremity"]) / 2 * 100
+    shape = max(0.0, min(1.0, (cl - lo) / (config.V2_SHAPE_FULL - lo)))
+    z = size if size is not None else 1.0            # unknown: treat as a normal-sized candle
+    sz = max(0.0, min(1.0, (z - config.V2_SIZE_MIN) / (config.V2_SIZE_FULL - config.V2_SIZE_MIN)))
+    parts = {"hour_oi": W["hour_oi"] * hour, "day_oi": W["day_oi"] * day,
+             "shape": W["shape"] * shape, "size": W["size"] * sz}
     return {"score": round(min(100.0, sum(parts.values()) + boost), 1),
             **{k: round(v, 1) for k, v in parts.items()}, "hour_known": hourly is not None}
 
