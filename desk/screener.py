@@ -328,7 +328,7 @@ def main() -> int:
                 rejected.append({**base, "reason": reason})
             continue
         base["scoring"] = top5_score(base, sectors)
-        base["v2"] = signals.score_v2(base, base["hourly"], base["info"].get("vol_ratio"), base["scoring"]["boost"])
+        base["v2"] = signals.score_v2(base, base["hourly"], base["scoring"]["boost"])
         ideas.append(base)
 
     ranked = sorted(ideas, key=lambda x: -x["scoring"]["score"])

@@ -10,8 +10,8 @@ Per signal (computed by the screener, desk/screener.py):
             candle on recent sessions, 50 EMA crosses in the ~3 sessions before
             (chop), stop distance, results date, F&O ban, market regime light.
   warnings  plain-language flags from the above. Warnings never block an idea.
-  score_v2  proposed score (signal-hour OI 40, day OI 25, candle 20, volume 15,
-            plus the same sector boost). Logged only; the live Top 5 is unchanged.
+  score_v2  proposed score (signal-hour OI 45, day OI 30, candle 25, plus the same
+            sector boost; volume not scored). Logged only; the live Top 5 is unchanged.
 
 Log (Supabase table signal_log, supabase/010_signal_log.sql): every idea, and every
 signal rejected only because the day's futures build-up was against it, the first
@@ -198,7 +198,7 @@ def warnings(side: str, info: dict, hourly: dict | None, check_hour: bool) -> li
 
 
 # ------------------------------------------------------------------ proposed score (logged only)
-def score_v2(idea: dict, hourly: dict | None, vol_ratio: float | None, boost: float) -> dict:
+def score_v2(idea: dict, hourly: dict | None, boost: float) -> dict:
     W = config.V2_WEIGHTS
     want = "Long build-up" if idea["side"] == "Long" else "Short build-up"
     day = min(abs(idea["futures"].get("pchg_oi") or 0), config.OI_CHANGE_CAP) / config.OI_CHANGE_CAP
@@ -209,9 +209,7 @@ def score_v2(idea: dict, hourly: dict | None, vol_ratio: float | None, boost: fl
     lo = (config.EF_BODY + config.EF_CLOSE_ZONE) / 2
     cl = (idea["candle_body"] + idea["candle_extremity"]) / 2
     candle = max(0.0, min(1.0, (cl - lo) / (1 - lo)))
-    vol = min(vol_ratio if vol_ratio is not None else 1.0, config.V2_VOL_CAP) / config.V2_VOL_CAP
-    parts = {"hour_oi": W["hour_oi"] * hour, "day_oi": W["day_oi"] * day, "candle": W["candle"] * candle,
-             "volume": W["volume"] * vol}
+    parts = {"hour_oi": W["hour_oi"] * hour, "day_oi": W["day_oi"] * day, "candle": W["candle"] * candle}
     return {"score": round(min(100.0, sum(parts.values()) + boost), 1),
             **{k: round(v, 1) for k, v in parts.items()}, "hour_known": hourly is not None}
 
