@@ -387,3 +387,17 @@ textarea { min-height: 60px; resize: vertical; }
 
 /* live price / P&L of open trades */
 td.live-cell small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; margin-top: 2px; }
+
+/* warnings on screener ideas (never block an idea) */
+.warns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ink-2); }
+.warns li { padding-left: 14px; position: relative; }
+.warns li::before { content: ""; position: absolute; left: 0; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--q-weakening); }
+.warn-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; font-size: 11.5px; font-weight: 600;
+  background: var(--q-weakening-wash); color: var(--ink); border: 1px solid var(--q-weakening); cursor: help; }
+
+/* track record */
+.tr-groups td.l small { display: block; color: var(--muted); font-size: 11.5px; }
+tr.few td { color: var(--muted); }
+.res-tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--hair); white-space: nowrap; }
+.res-tag.target { border-color: var(--q-leading); }
+.res-tag.stop { border-color: var(--q-lagging); }

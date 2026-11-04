@@ -54,6 +54,12 @@ class Supabase:
             self._req("POST", table, params={"on_conflict": on_conflict}, body=rows[i:i + 1000],
                       prefer="resolution=merge-duplicates,return=minimal")
 
+    def insert_new(self, table: str, rows: list[dict], on_conflict: str):
+        """Insert rows; rows whose on_conflict key already exists are left as they are."""
+        for i in range(0, len(rows), 1000):
+            self._req("POST", table, params={"on_conflict": on_conflict}, body=rows[i:i + 1000],
+                      prefer="resolution=ignore-duplicates,return=minimal")
+
     def select(self, table: str, params: dict) -> list[dict]:
         out, start = [], 0
         while True:
@@ -89,6 +95,13 @@ class Local:
     def insert(self, table, rows):
         self.tables.setdefault(table, []).extend(_jsonable(rows))
 
+    def insert_new(self, table, rows, on_conflict):
+        keys = on_conflict.split(",")
+        cur = self.tables.setdefault(table, [])
+        for r in _jsonable(rows):
+            if not any(all(x.get(k) == r.get(k) for k in keys) for x in cur):
+                cur.append({"id": len(cur) + 1, "done": False, **r})
+
     def upsert(self, table, rows, on_conflict):
         keys = on_conflict.split(",")
         cur = self.tables.setdefault(table, [])
@@ -104,6 +117,8 @@ class Local:
             op, _, val = cond.partition(".")
             def ok(x, op=op, val=val, col=col):  # noqa: E306
                 v = x.get(col)
+                if isinstance(v, bool):
+                    v = str(v).lower()
                 if v is None:
                     return op == "is" and val == "null"
                 if op == "eq":

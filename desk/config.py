@@ -94,3 +94,31 @@ SECTOR_BOOST = 10.0
 SECTOR_SITE = "https://vs916491-maker.github.io/Nifty-sector-strength/data"
 
 COST_PCT = 0.10                   # round-trip costs for % P&L on stock trades
+
+# ------------------------------------------------------------------ signal log + track record (desk/signals.py)
+# Every idea (and every signal rejected only because the day's futures build-up was
+# against it) is logged with its score parts and warnings; later scans mark the result
+# with the strategy's own exit rules (stop, 1:2 target, close back across the 50 EMA,
+# or 5 sessions). The Track record tab compares groups from this log.
+OI_SNAP_KEEP = 12                 # hourly futures OI snapshots kept (about two sessions)
+OI_SNAP_GAP = 0.5                 # seconds between per-stock futures quotes for the snapshot
+OI_SNAP_MAX_SEC = 360             # stop the snapshot after this long (the rest waits for the next scan)
+OI_SNAP_MIN_AGE_MIN = 20          # a Run-scanner press soon after a scan does not take another snapshot
+HOUR_FLAT_PCT = 0.10              # signal-hour OI change smaller than this (%) counts as flat
+
+# Warnings (shown on the idea, never block it)
+WARN_RESULTS_SESSIONS = 5         # quarterly results within this many sessions
+WARN_RISK_MIN = 0.4               # stop closer than this % from entry: noise can hit it
+WARN_RISK_MAX = 2.5               # stop further than this %: large risk for a 5-session trade
+DAILY_SMA = 20                    # daily trend: price vs its 20-day average
+VOL_SESSIONS = 10                 # breakout volume vs the same hourly candle over the last 10 sessions
+WARN_VOL_RATIO = 1.0              # below the usual volume for that hour
+CHOP_BARS = 21                    # about 3 sessions of hourly candles before the signal
+WARN_CHOP_CROSSES = 3             # this many 50 EMA crosses before the signal: choppy
+
+# Proposed score (logged only; the live Top 5 still uses TOP5_WEIGHTS + SECTOR_BOOST).
+# Signal-hour OI 40, day OI 25, candle 20 (within the allowed solid-candle band), volume 15,
+# plus the same sector boost. The Track record tab shows how its Top 5 would have done.
+V2_WEIGHTS = {"hour_oi": 40.0, "day_oi": 25.0, "candle": 20.0, "volume": 15.0}
+V2_HOUR_OI_CAP = 5.0              # signal-hour OI change counted up to 5%
+V2_VOL_CAP = 2.0                  # volume counted up to 2x the usual for that hour

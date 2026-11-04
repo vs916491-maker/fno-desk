@@ -11,11 +11,13 @@ it on any device behind an email sign-in.
 | Option chain | NIFTY, SENSEX, BANKNIFTY, FINNIFTY, MIDCPNIFTY by expiry: OI, change in OI, LTP, IV, PCR, max pain, walls | every 15 minutes |
 | Suggested index trades | Swing (monthly chain, up to 5 sessions): 5-factor score, futures trade by OI walls and by volatility, "I took this trade"; 3:15 pm signal history | every 15 minutes |
 | My trades | Stock trades (% after costs) and index futures trades (₹); auto-close at stop, target or after 5 sessions | with each job |
+| Track record | Every screener signal logged with its score parts, signal-hour OI and warnings; results by group (Top 5 vs rest, proposed score, OI, sector, trend, regime, volume, chop, stop distance) | with each stock scan |
 
 ## How it runs
 
 - `desk/snapshot.py`: index option chains (NSE v3 feed, BSE for SENSEX), index futures (NSE quote API), quotes; swing signals, trend scale, warnings, chart history. Workflow *Index snapshot (every 15 min)*.
 - `desk/screener.py`: Yahoo hourly candles for all F&O stocks, 50 EMA cross, futures OI from NSE's quote API, Top 5. Workflow *Stock screener (hourly)*.
+- `desk/signals.py`: signal-hour futures OI, warnings, proposed score, the signal log and its results (Track record). After each scan's results are published, the scan saves futures OI for all F&O stocks (`stock_oi_snaps` doc) so the next scan can measure the signal hour.
 - `desk/journal.py`: closes your open trades automatically.
 - `desk/config.py`: every rule threshold in one place.
 - `site/`: the website (plain HTML/CSS/JS); `site/config.js` holds the Supabase URL and public anon key.
@@ -29,6 +31,7 @@ GitHub's schedules can start a few minutes late. Exchange feeds are unofficial w
 2. Supabase → Authentication → URL configuration: Site URL = this repo's Pages URL.
 3. GitHub repo secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
 4. `site/config.js`: Supabase URL and anon key.
+5. Run the numbered updates in `supabase/` in order (`010_signal_log.sql` creates the Track record's signal log).
 
 Without step 4 the website runs in preview mode on `site/sample/`.
 

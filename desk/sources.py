@@ -61,8 +61,9 @@ def _walk(obj):
 class NSE:
     BASE = "https://www.nseindia.com"
 
-    def __init__(self, timeout: int = 20):
+    def __init__(self, timeout: int = 20, gap: float | None = None):
         self.timeout = timeout
+        self.gap = config.REQUEST_GAP if gap is None else gap
         self.s = requests.Session()
         self.s.headers.update({
             "User-Agent": UA, "Accept": "application/json, text/plain, */*",
@@ -83,7 +84,7 @@ class NSE:
         for attempt in range(3):
             if not self._warm:
                 self._warmup()
-            time.sleep(config.REQUEST_GAP)
+            time.sleep(self.gap)
             try:
                 r = self.s.get(self.BASE + path, params=params, timeout=self.timeout)
             except requests.RequestException as e:
@@ -211,6 +212,18 @@ class NSE:
                 "expiry": str(parse_date(near.get("expiryDate"))), "spot": num(near.get("underlyingValue")),
                 "oi_total": oi, "chg_oi_total": coi,
                 "pchg_oi": (coi / prev_oi * 100) if prev_oi > 0 else 0.0}
+
+    # -------------------------------------------------------- F&O ban list
+    def fo_ban(self) -> set[str]:
+        """Stocks in the F&O ban period today (no new positions allowed)."""
+        r = self.s.get("https://nsearchives.nseindia.com/content/fo/fo_secban.csv", timeout=self.timeout)
+        r.raise_for_status()
+        out = set()
+        for line in r.text.splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1]:
+                out.add(parts[1].upper())
+        return out
 
     # -------------------------------------------------------- lot sizes / F&O list
     def fno_lots(self) -> dict[str, int]:

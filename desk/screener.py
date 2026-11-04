@@ -16,6 +16,12 @@ Top 5 (win rate removed): candle clarity 60% + OI change size 40%, plus a
 +10 boost when the stock's sector is Leading/Improving (Longs) or
 Lagging/Weakening (Shorts) on the Sector Strength site.
 
+Each idea also gets the signal hour's futures OI, warnings (results, F&O ban,
+stop distance, daily trend, regime, volume, chop) and a proposed score; ideas and
+signals rejected by the day's futures build-up go to the signal log, whose results
+feed the Track record tab (desk/signals.py). After the results are published, the
+scan saves futures OI for all F&O stocks for the next scans' signal-hour OI.
+
 Runs ~5 minutes after each hourly candle closes (GitHub Actions).
 Run:  python -m desk.screener [--force]
 """
@@ -32,7 +38,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from . import config, journal, store
+from . import config, journal, signals, store
 from .snapshot import now_ist
 from .sources import NSE, yahoo_chart
 
@@ -102,7 +108,7 @@ def follow(df: pd.DataFrame, e: pd.Series, sig: dict, lv: dict) -> tuple[str, st
     return "open", None
 
 
-def sector_view(db=None) -> dict[str, dict]:
+def sector_view(db=None, extras: dict | None = None) -> dict[str, dict]:
     """symbol -> {"long": sector name or None, "short": sector name or None}.
 
     The Sector Strength website now keeps its data in the same private
@@ -122,6 +128,17 @@ def sector_view(db=None) -> dict[str, dict]:
             stk = requests.get(f"{config.SECTOR_SITE}/stocks.json", timeout=30).json()
         except Exception:  # noqa: BLE001
             return {}
+    if extras is not None:
+        extras["results"] = stk.get("results") or {}
+        reg = None
+        if db is not None and hasattr(db, "select"):
+            reg = signals.get_doc(db, "ss_regime")
+        if not reg:
+            try:
+                reg = requests.get(f"{config.SECTOR_SITE}/regime.json", timeout=20).json()
+            except Exception:  # noqa: BLE001
+                reg = None
+        extras["regime"] = (reg or {}).get("light")
     rows = sec["benchmarks"]["NIFTY500"]["rows"]
     names = sec.get("names", {})
     out = {}
@@ -247,8 +264,16 @@ def main() -> int:
             if sig and sig["time"].date() == last_day:
                 raw.append((sym, df, e, sig, full))
 
-    sectors = sector_view(db)
-    ideas, others = [], []
+    extras: dict = {}
+    sectors = sector_view(db, extras)
+    snaps = signals.load_snaps(db)
+    try:
+        banned = nse.fo_ban()
+    except Exception as exc:  # noqa: BLE001
+        banned = set()
+        problems.append(f"F&O ban list: {exc}"[:160])
+    today = now.date()
+    ideas, others, rejected = [], [], []
     for sym, df, e, sig, full in raw:
         side = "Long" if sig["dir"] > 0 else "Short"
         j = sig["bar"]
@@ -270,6 +295,7 @@ def main() -> int:
             others.append({**base, "reason": "No valid stop below/above entry"})
             continue
         base["levels"] = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in lv.items()}
+        base["sig"] = {"candle_ext": round(sig["candle_ext"], 2), "swing": round(sig["swing"], 2)}
         status, why = follow(df, e, sig, lv)
         if status != "open":
             others.append({**base, "reason": why})
@@ -290,17 +316,26 @@ def main() -> int:
         basis = fut["ltp"] - (fut.get("spot") or base["last_price"])
         base["futures_levels"] = {k: round(base["levels"][k] + basis, 2) for k in ("entry", "stop", "target")}
         want = "Long build-up" if side == "Long" else "Short build-up"
+        base["hourly"] = signals.signal_hour(snaps, sym, sig["time"], fut)
+        base["info"] = signals.context(df, e, j, side, lv, extras.get("results", {}).get(sym), sym in banned,
+                                       extras.get("regime"), today)
+        base["warnings"] = signals.warnings(side, base["info"], base["hourly"], check_hour=(st == want))
         if st != want:
             reason = {"Short covering": "Short covering: ignore (fake rally)",
                       "Long unwinding": "Long unwinding: ignore (fake fall)"}.get(st, f"{st}: not the {want.lower()} needed")
             others.append({**base, "reason": reason})
+            if st in ("Short build-up", "Long build-up", "Short covering", "Long unwinding"):
+                rejected.append({**base, "reason": reason})
             continue
         base["scoring"] = top5_score(base, sectors)
+        base["v2"] = signals.score_v2(base, base["hourly"], base["info"].get("vol_ratio"), base["scoring"]["boost"])
         ideas.append(base)
 
     ranked = sorted(ideas, key=lambda x: -x["scoring"]["score"])
     for i, x in enumerate(ranked[:5], 1):
         x["top_rank"] = i
+    for i, x in enumerate(sorted(ideas, key=lambda x: -x["v2"]["score"]), 1):
+        x["rank_v2"] = i
     ideas.sort(key=lambda x: x["signal_time"], reverse=True)
     others.sort(key=lambda x: x["signal_time"], reverse=True)
 
@@ -319,9 +354,26 @@ def main() -> int:
                       "futures_minutes": max(0, int((now - now.replace(hour=9, minute=15, second=0, microsecond=0)).total_seconds() // 60))}
                      if last_completed is not None and last_completed.date() < now.date() and now.weekday() < 5
                      and now.strftime("%H:%M") >= "09:15" else None),
+           "regime": extras.get("regime"), "fo_ban": sorted(banned),
            "rules": {"ema": config.EF_EMA, "target_r": config.EF_TARGET_R, "max_days": config.EF_MAX_DAYS,
                      "top5_weights": config.TOP5_WEIGHTS, "sector_boost": config.SECTOR_BOOST}}
     db.put_doc("stock_screener", doc)
+
+    # after the results are out: signal log, results of earlier signals, OI snapshot
+    after = []
+    try:
+        after.append(signals.write_log(db, signals.log_rows(ideas, "idea", doc["ts"]) +
+                                       signals.log_rows(rejected, "rejected", doc["ts"])))
+    except Exception as exc:  # noqa: BLE001
+        after.append(f"signal log not written: {exc}"[:220] + (" (run supabase/010_signal_log.sql)" if "signal_log" in str(exc) else ""))
+    try:
+        after.append(signals.evaluate(db, candles, now, completed, ema, levels))
+    except Exception as exc:  # noqa: BLE001
+        after.append(f"results not checked: {exc}"[:220])
+    try:
+        after.append(signals.take_snapshot(db, NSE, symbols, now_ist, snaps))
+    except Exception as exc:  # noqa: BLE001
+        after.append(f"OI snapshot failed: {exc}"[:220])
 
     summary = (f"{doc['ts']}: scanned {len(symbols)} (no candles {len(missing)}), trend switches {len(raw)}, "
                f"ideas {len(ideas)}, others {len(others)}, sector data {'yes' if sectors else 'no'}, "
@@ -331,7 +383,8 @@ def main() -> int:
                            f"target {x['levels']['target']:.2f} {x['futures']['buildup']} "
                            f"OI {x['futures']['pchg_oi']:+.1f}% score {x['scoring']['score']} {x['scoring']['sector'] or ''}"
                            for x in ranked[:8])
-               + "\nOthers: " + "; ".join(f"{x['symbol']} {x['side']}: {x['reason']}" for x in others[:12]))
+               + "\nOthers: " + "; ".join(f"{x['symbol']} {x['side']}: {x['reason']}" for x in others[:12])
+               + "\nAfter: " + "; ".join(after))
     print(summary)
     for p in problems[:10]:
         print("PROBLEM:", p)
