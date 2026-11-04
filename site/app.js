@@ -1,5 +1,5 @@
 /* F&O Desk - static site on GitHub Pages, data in Supabase.
-   Tabs (hash routes): #/stocks  #/index  #/chain  #/swing  #/watch  #/trades  #/record
+   Tabs (hash routes): #/stocks  #/index  #/chain  #/swing  #/watch  #/trades  #/record  #/readme
    Without Supabase settings in config.js it runs in preview mode on ./sample. */
 "use strict";
 
@@ -1112,6 +1112,120 @@ async function viewRecord(app) {
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, recent))) : null);
 }
 
+// ------------------------------------------------------------------ readme: current rules and scoring
+/* Static text: keep in step with desk/config.py, desk/screener.py, desk/signals.py,
+   desk/engine.py and desk/journal.py when a rule changes. */
+function viewReadme(app) {
+  const sec = (title, sub, ...kids) => h("section", null,
+    h("div", { class: "section-head" }, h("h2", null, title), sub ? h("p", null, sub) : null), ...kids);
+  const list = (items) => h("ul", { class: "readme-list" }, items.map((t) => h("li", null, t)));
+  const tbl = (head, rows) => h("div", { class: "panel" }, h("div", { class: "table-scroll" }, h("table", { class: "static readme-tbl" },
+    h("thead", null, h("tr", null, head.map((c, i) => h("th", { class: "l" }, c)))),
+    h("tbody", null, rows.map((r) => h("tr", { style: "cursor:default" }, r.map((c, i) => h("td", { class: i === 0 ? "l name" : "l" }, c))))))));
+  const tag = (t, cls) => h("span", { class: `flag ${cls || ""}` }, t);
+
+  render(app,
+    pageHead("Readme", "How the desk decides: the rules and scores in use today"),
+    h("p", { class: "intro" }, "Personal analysis only, not investment advice. Exchange feeds are unofficial NSE/BSE website endpoints and can change without notice."),
+
+    sec("F&O stock screener", "Live rules",
+      h("h3", { class: "readme-h" }, "1. Trigger: hourly 50 EMA cross"),
+      list([
+        "Long: a solid hourly candle closes above the 50 EMA after the previous candle closed at or below it. Short is the mirror image.",
+        "Solid: body at least 50% of the candle's range, and the close in the top third (bottom third for a Short).",
+        "Signals from the last 2 completed hourly candles of today are checked at every scan.",
+      ]),
+      h("h3", { class: "readme-h" }, "2. Filter: the day's futures build-up"),
+      list([
+        "Futures price change and OI change today vs yesterday, OI added across all expiries.",
+        "Long needs long build-up (price up, OI up). Short needs short build-up (price down, OI up).",
+        "Short covering and long unwinding are skipped as fake moves (listed under Other trend switches).",
+      ]),
+      h("h3", { class: "readme-h" }, "3. Entry, stop, target, exit"),
+      list([
+        "Entry: the next candle's open.",
+        "Stop: 0.1% beyond the breakout candle's low (high for a Short) or the swing of the 10 candles before it, whichever is closer to the entry.",
+        "Target: 2 × the risk (1:2).",
+        "Exit: stop, target, a candle closing back across the 50 EMA, or after 5 sessions.",
+      ]),
+      h("h3", { class: "readme-h" }, "4. Top 5 score (live)"),
+      tbl(["Part", "Weight", "How it is measured"], [
+        ["Candle clarity", "60%", "Average of body % of range and close position % (100 = close at the high for a Long, at the low for a Short). Because of the solid-candle rule it cannot be below 58."],
+        ["OI change", "40%", "The day's futures OI change, counted up to 15% (15% or more = full marks)."],
+        ["Sector boost", "+10", "Long: the stock's sector is Leading or Improving on the Sector Strength RRG (Nifty 500). Short: Lagging or Weakening."],
+        ["Total", "0–100", "Ideas are ranked by this; the top 5 are the Top 5."],
+      ]),
+      h("h3", { class: "readme-h" }, "5. Signal hour"),
+      list([
+        "After each scan's results are published, the scan saves futures OI for all F&O stocks. The next scan compares against it.",
+        "Shown on each idea: build-up, OI and price change since the signal candle opened. Available from the 11:20 scan; for a 9:15 signal it equals the day's change.",
+      ]),
+      h("h3", { class: "readme-h" }, "6. Warnings (never remove an idea)"),
+      tbl(["Warning", "When"], [
+        ["F&O ban", "The stock is in NSE's F&O ban list today (no new positions allowed)."],
+        ["Results", "Quarterly results within 5 sessions (dates from Sector Strength)."],
+        ["Stop distance", "Stop closer than 0.4% (noise) or further than 2.5% (large risk) from the entry."],
+        ["Daily trend", "Long below / Short above the 20-day simple average of daily closes."],
+        ["Market regime", "Long while Sector Strength's regime light is Red, or Short while it is Green."],
+        ["Breakout volume", "Signal candle's volume below the usual for that hour (same hourly candle, last 10 sessions)."],
+        ["Candle size", "Range below 0.6× (small candle) or above 2.5× (very big candle) the usual for that hour."],
+        ["Chop", "3 or more 50 EMA crosses in the 3 sessions before the signal."],
+        ["Signal hour", "OI over the signal hour shows covering, unwinding, flat or opposite build-up."],
+      ])),
+
+    sec("Proposed score", "Testing only: logged for every idea, not used for the Top 5",
+      tbl(["Part", "Points", "How it is measured"], [
+        ["Signal-hour OI", "35", "Build-up in the trade's direction during the signal hour, counted up to 5% (covering or unwinding = 0). No snapshot yet: uses the day's OI."],
+        ["Day OI", "25", "The day's futures OI change, counted up to 15%."],
+        ["Candle shape", "25", "0 at clarity 58 (weakest allowed), full from clarity 85."],
+        ["Candle size", "15", "Range vs the usual for that hour: 0 at 0.5×, full from 1.5×."],
+        ["Sector boost", "+10", "Same as the live score."],
+      ]),
+      h("p", { class: "note" }, "Track record compares the live Top 5 with the proposed score's Top 5. If the proposed one does clearly better over 6–8 weeks of results, the screener switches to it.")),
+
+    sec("Track record", "Signal log",
+      list([
+        "Every idea is saved the first time a scan lists it, with its score parts, signal-hour OI and warnings. Signals rejected only by the day's futures build-up are saved too.",
+        "Later scans fill in the result from the next candle's open. Strategy exits: stop, 1:2 target, close back across the 50 EMA, or 5 sessions. My-trades exits: stop, target or 5 sessions.",
+        "R = result ÷ risk to the stop. Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
+      ])),
+
+    sec("Suggested index trades", "Swing only: monthly chain, up to 5 sessions",
+      tbl(["Factor", "Score", "Reading"], [
+        ["OI shift, ATM ±2 strikes", "−1 to +1", "Change over the last 60 minutes. Put writing leads: +1 with call unwinding at resistance, +0.5 without. Call writing leads: −1 / −0.5."],
+        ["PCR (total OI)", "−1 to +1", "Above 1.20: +1 (above 1.60: +0.5, crowded). Below 0.80: −1 (below 0.50: −0.5). 0.85–1.15: neutral."],
+        ["PCR intraday slope", "−1 to +1", "Rising 0.03 or more per hour: +1; falling as much: −1. Needs 4+ snapshots over 45+ minutes."],
+        ["Change-in-OI PCR (day)", "−1 to +1", "Fresh puts vs fresh calls today: above 1.20: +1, below 0.80: −1."],
+        ["Futures OI build-up", "−1 to +1", "Long build-up +1, short covering +0.5, long unwinding −0.5, short build-up −1."],
+      ]),
+      list([
+        "Total −5 to +5. LONG at +2.5 or more, SHORT at −2.5 or less; Strong at ±3.5 or beyond. The monthly expiry must be 7+ days away.",
+        "Futures levels by two methods. OI walls: stop at the put wall, target at the call wall (reverse for Short), valid when reward is at least 1.5 × risk. Volatility: 5-session expected move from ATM IV; stop 0.6 × that move, target 1.5 × the stop.",
+        "The day's official signal is saved at 3:15 pm (signal history).",
+      ])),
+
+    sec("F&O index analysis warnings", null,
+      list([
+        "Squeeze: PCR at 0.50 or below, spot up 0.15%+ in 60 minutes and call OI near ATM falling (put-writer covering is the mirror at PCR 1.80+).",
+        "Expiry day and expiry eve: OI readings are less reliable as positions close or roll.",
+      ])),
+
+    sec("My trades", null,
+      list([
+        "Stock trades close automatically at the stop, the target, or after 5 sessions (hourly candles; the 50 EMA exit is not applied to your trades).",
+        "Index futures trades close at the stop or target on the futures price (checked every 15 minutes), or after 5 sessions.",
+        "P&L ₹ = (sell − buy) × lots × lot size − charges. Stock P&L % is after 0.1% costs.",
+        "Totals at the top cover the current financial year (April–March) and start fresh each 1 April; completed years move to Year by year. Closed trades are locked.",
+      ])),
+
+    sec("Timing", null,
+      list([
+        "Stock screener: about 4 minutes after each hourly candle closes (10:19 … 15:19, and 15:34), plus the Run scanner button.",
+        "Index analysis, option chain and suggested index trades: every 15 minutes, 9:15–15:30.",
+        "Sector boost, regime light and results dates come from the Sector Strength site's evening update.",
+      ])));
+}
+
 // ------------------------------------------------------------------ routing
 async function route() {
   const app = document.getElementById("app");
@@ -1135,12 +1249,13 @@ async function route() {
     else if (tab === "trades") await viewTrades(app);
     else if (tab === "watch") await viewWatch(app);
     else if (tab === "record") await viewRecord(app);
+    else if (tab === "readme") viewReadme(app);
     else await viewStocks(app);
   } catch (err) {
     render(app, h("p", { class: "empty" }, `Could not load the data (${err.message}). Refresh to try again.`));
   }
   clearInterval(refreshTimer);
-  if (tab !== "trades") refreshTimer = setInterval(() => { if (!document.getElementById("dlg").open) route(); }, 5 * 60 * 1000);
+  if (tab !== "trades" && tab !== "readme") refreshTimer = setInterval(() => { if (!document.getElementById("dlg").open) route(); }, 5 * 60 * 1000);
 }
 
 (function restore() {

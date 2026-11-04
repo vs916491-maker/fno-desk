@@ -401,3 +401,11 @@ tr.few td { color: var(--muted); }
 .res-tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--hair); white-space: nowrap; }
 .res-tag.target { border-color: var(--q-leading); }
 .res-tag.stop { border-color: var(--q-lagging); }
+
+/* readme */
+.readme-h { font-size: 15px; font-weight: 600; margin: 14px 0 6px; }
+.readme-list { margin: 0 0 8px; padding-left: 20px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.readme-list li { margin: 2px 0; }
+.readme-tbl td { white-space: normal; vertical-align: top; line-height: 1.5; }
+.readme-tbl td.name { white-space: nowrap; }
+.readme-tbl td:nth-child(2) { white-space: nowrap; }

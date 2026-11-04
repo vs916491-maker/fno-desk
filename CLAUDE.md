@@ -15,6 +15,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 | Suggested index trades (`#/swing`) | Swing only (monthly chain, up to 5 sessions), 5-factor score, futures trade by OI walls / volatility; 3:15 pm signal history | every 15 min |
 | Watchlist (`#/watch`) | F&O Desk's own watchlist (Supabase table `watchlist`; Sector Strength and Fundamentals Desk share a different one, `fd_watchlist`) | — |
 | My Trades (`#/trades`) | Stock trades (% after costs), index trades as futures (₹ P&L); auto-close at stop, target or after 5 sessions | with each job |
+| Readme (`#/readme`) | Current rules and scores in plain words (static text in `viewReadme` in `site/app.js`: **update it when a rule changes**) | — |
 | Track record (`#/record`) | Signal log (Supabase `signal_log`): every idea + signals rejected by day OI, with score parts, signal-hour OI, warnings; results by group | with each stock scan |
 
 ## Main files
