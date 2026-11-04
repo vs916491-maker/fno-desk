@@ -164,6 +164,28 @@ def top5_score(idea: dict, sectors: dict) -> dict:
             "sector": sector, "sector_quadrant": sv.get(f"{key}_q"), "boost": boost}
 
 
+DAY_KEY = "stock_screener_day"
+
+
+def save_day_run(db, doc: dict) -> str:
+    """Keep every scan's ideas for the day (Run 1, Run 2, ...); a new day starts fresh."""
+    day = doc["ts"][:10]
+    cur = signals.get_doc(db, DAY_KEY) or {}
+    runs = cur.get("runs", []) if cur.get("date") == day else []
+    runs = [r for r in runs if r.get("ts") != doc["ts"]]
+    keep = ("symbol", "side", "signal_time", "entry_status", "levels", "futures_levels", "hourly", "warnings",
+            "top_rank", "rank_v2", "lot_size", "v2")
+    ideas = [{**{k: x.get(k) for k in keep},
+              "futures": {k: (x.get("futures") or {}).get(k) for k in ("buildup", "pchg_oi", "pchange")},
+              "scoring": {k: (x.get("scoring") or {}).get(k) for k in ("score", "clarity", "oi_change", "boost", "sector", "sector_quadrant")}}
+             for x in doc.get("ideas", [])]
+    runs.append({"ts": doc["ts"], "early": bool(doc.get("early")), "scanned": doc.get("scanned"),
+                 "ideas": ideas, "others": len(doc.get("others", []))})
+    runs.sort(key=lambda r: r["ts"])
+    db.put_doc(DAY_KEY, {"date": day, "runs": runs})
+    return f"day log: run {len(runs)} of {day}"
+
+
 def last_candle_end(now: datetime) -> datetime:
     ends = [now.replace(hour=h, minute=15, second=0, microsecond=0) for h in range(10, 16)]
     ends.append(now.replace(hour=15, minute=30, second=0, microsecond=0))
@@ -359,8 +381,12 @@ def main() -> int:
                      "top5_weights": config.TOP5_WEIGHTS, "sector_boost": config.SECTOR_BOOST}}
     db.put_doc("stock_screener", doc)
 
-    # after the results are out: signal log, results of earlier signals, OI snapshot
+    # after the results are out: day log of runs, signal log, results of earlier signals, OI snapshot
     after = []
+    try:
+        after.append(save_day_run(db, doc))
+    except Exception as exc:  # noqa: BLE001
+        after.append(f"day log not saved: {exc}"[:200])
     try:
         after.append(signals.write_log(db, signals.log_rows(ideas, "idea", doc["ts"]) +
                                        signals.log_rows(rejected, "rejected", doc["ts"])))

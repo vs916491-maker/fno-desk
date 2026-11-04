@@ -9,7 +9,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 ## Tabs
 | Tab | What it shows | Updates |
 |---|---|---|
-| F&O stock screener (`#/stocks`) | Hourly 50 EMA cross + futures OI build-up; Top 5 (candle clarity 60% + OI change 40% + sector boost); "I took this trade"; Run scanner button | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
+| F&O stock screener (`#/stocks`) | Hourly 50 EMA cross + futures OI build-up; Top 5 (candle clarity 60% + OI change 40% + sector boost); all ideas of the day kept by run (Run 1, Run 2 …; doc `stock_screener_day`, fresh each day); "I took this trade"; Run scanner button | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
 | F&O index analysis (`#/index`) | Index cards, warnings (squeeze, expiry), NIFTY intraday trend scale, hourly PCR (monthly + weekly), futures OI | every 15 min, 09:15–15:30 |
 | Option chain (`#/chain`) | NIFTY, SENSEX, BANKNIFTY, FINNIFTY, MIDCPNIFTY: OI, change in OI, LTP, IV, PCR, max pain, walls | every 15 min |
 | Suggested index trades (`#/swing`) | Swing only (monthly chain, up to 5 sessions), 5-factor score, futures trade by OI walls / volatility; 3:15 pm signal history | every 15 min |

@@ -410,3 +410,9 @@ tr.few td { color: var(--muted); }
 .readme-tbl td.name { white-space: nowrap; }
 .readme-tbl td:nth-child(2) { white-space: nowrap; }
 .idea .meta.proposed { border-top: 1px dashed var(--hair); padding-top: 6px; }
+
+/* today's runs on the stock screener */
+details.run { margin-bottom: 10px; }
+details.run > summary { cursor: pointer; padding: 8px 2px; font-size: 14px; list-style-position: inside; }
+details.run > summary .flag { margin-left: 6px; }
+details.run > .panel { margin-top: 4px; }

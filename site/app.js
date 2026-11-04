@@ -457,11 +457,23 @@ async function viewStocks(app) {
     h("div", { class: "btn-row" }, h("button", { class: "btn primary small", type: "button", onclick: () => took(x) }, "I took this trade"),
       h("button", { class: "btn small", type: "button", onclick: () => watch(x) }, "Move to watchlist"))));
 
-  const ideaTable = h("table", null,
+  // every run of the day (Run 1, Run 2 ...); falls back to this scan alone
+  const dayDoc = await doc("stock_screener_day").catch(() => null);
+  let runs = dayDoc && dayDoc.date === String(d.ts).slice(0, 10) && (dayDoc.runs || []).length ? dayDoc.runs.slice() : [];
+  if (!runs.some((r) => r.ts === d.ts)) runs.push({ ts: d.ts, early: Boolean(d.early), ideas, others: (d.others || []).length });
+  runs.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const seen = new Set(), firstRun = {};
+  runs.forEach((r, i) => (r.ideas || []).forEach((x) => {
+    const k = `${x.symbol}|${x.side}|${x.signal_time}`;
+    x.repeat = seen.has(k) ? firstRun[k] : null;
+    if (!seen.has(k)) { seen.add(k); firstRun[k] = i + 1; }
+  }));
+  const ideaTable = (list) => h("table", null,
     h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures today", "OI chg", "Signal hour", "Warnings", "Score", "Proposed", ""].map((c, i) =>
       h("th", { class: i < 2 ? "l" : null }, c)))),
-    h("tbody", null, ideas.map((x) => h("tr", { style: "cursor:default" },
-      h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null, chartLink(x.symbol)),
+    h("tbody", null, list.map((x) => h("tr", { style: "cursor:default" },
+      h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null,
+        x.repeat ? h("span", { class: "flag", title: `Same signal as in Run ${x.repeat}` }, `also Run ${x.repeat}`) : null, chartLink(x.symbol)),
       h("td", { class: "l" }, sideTag(x.side)),
       h("td", null, x.signal_time.slice(11, 16)),
       h("td", null, fmt(x.levels.entry)), h("td", null, fmt(x.levels.stop)), h("td", null, fmt(x.levels.target)),
@@ -489,8 +501,17 @@ async function viewStocks(app) {
     h("section", null, h("div", { class: "section-head" }, h("h2", null, "Top 5"),
       h("p", null, "Candle clarity 60% + OI change 40%, plus 10 points when the stock's sector leads in the trade's direction")),
       top.length ? h("div", { class: "ideas" }, topCards) : h("p", { class: "empty" }, "No confirmed ideas in this scan.")),
-    h("section", null, h("div", { class: "section-head" }, h("h2", null, `All trade ideas (${ideas.length})`), h("p", null, "Newest first")),
-      ideas.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, ideaTable)) : h("p", { class: "empty" }, "None right now.")),
+    h("section", null, h("div", { class: "section-head" }, h("h2", null, `All trade ideas today (${seen.size})`),
+      h("p", null, `${runs.length} run${runs.length === 1 ? "" : "s"}, newest first. Kept for the day; a new day starts fresh.`)),
+      runs.slice().reverse().map((r, i) => {
+        const n = runs.length - i, list = r.ideas || [];
+        const tops = list.filter((x) => x.top_rank).sort((a, b) => a.top_rank - b.top_rank).map((x) => x.symbol);
+        const fresh = list.filter((x) => !x.repeat).length;
+        return h("details", { class: "run", open: i === 0 || null },
+          h("summary", null, h("b", null, `Run ${n} · ${String(r.ts).slice(11, 16)}`), r.early ? h("span", { class: "flag" }, "early") : null,
+            h("span", { class: "muted" }, ` ${list.length} idea${list.length === 1 ? "" : "s"}${fresh !== list.length ? ` (${fresh} new)` : ""}${tops.length ? ` · Top 5: ${tops.join(", ")}` : ""}`)),
+          list.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, ideaTable(list))) : h("p", { class: "empty" }, "No ideas in this run."));
+      })),
     h("section", null, h("div", { class: "section-head" }, h("h2", null, `Other trend switches (${others.length})`), h("p", null, "50 EMA crosses that did not qualify")),
       others.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, otherTable)) : h("p", { class: "empty" }, "None.")),
     d.problems && d.problems.length ? h("p", { class: "note" }, `Data notes: ${d.problems.slice(0, 3).join("; ")}`) : null);
@@ -1183,6 +1204,11 @@ function viewReadme(app) {
         ["Candle size", "Range below 0.6× (small candle) or above 2.5× (very big candle) the usual for that hour."],
         ["Chop", "3 or more 50 EMA crosses in the 3 sessions before the signal."],
         ["Signal hour", "OI over the signal hour shows covering, unwinding, flat or opposite build-up."],
+      ]),
+      h("h3", { class: "readme-h" }, "7. All trade ideas today"),
+      list([
+        "Every run's ideas are kept for the day, grouped as Run 1 (about 10:19), Run 2 (11:19) … plus any Run scanner presses. The latest run is open; earlier runs are folded.",
+        "A signal already seen in an earlier run is tagged \u201calso Run N\u201d (a signal stays valid for two scans). The list starts fresh each day.",
       ])),
 
     sec("Proposed score", "Testing only: shown on each idea as \u201cProposed\u201d and logged, but not used for the Top 5",
