@@ -447,6 +447,7 @@ async function viewStocks(app) {
     h("div", { class: "meta" }, `Futures today: ${x.futures.buildup}, OI ${pct(x.futures.pchg_oi, 1)}, price ${pct(x.futures.pchange)}. `,
       `Futures levels ${fmt(x.futures_levels.entry)} / ${fmt(x.futures_levels.stop)} / ${fmt(x.futures_levels.target)}`),
     h("div", { class: "meta" }, hourText(x.hourly)),
+    proposedLine(x),
     h("div", { class: "parts" },
       part("Candle clarity", x.scoring.clarity, `${Math.round(x.scoring.clarity)}`),
       part("OI change", x.scoring.oi_change, `${Math.round(x.scoring.oi_change)}`),
@@ -457,7 +458,7 @@ async function viewStocks(app) {
       h("button", { class: "btn small", type: "button", onclick: () => watch(x) }, "Move to watchlist"))));
 
   const ideaTable = h("table", null,
-    h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures today", "OI chg", "Signal hour", "Warnings", "Score", ""].map((c, i) =>
+    h("thead", null, h("tr", null, ["Stock", "Side", "Signal", "Entry", "Stop", "Target", "Risk", "Futures today", "OI chg", "Signal hour", "Warnings", "Score", "Proposed", ""].map((c, i) =>
       h("th", { class: i < 2 ? "l" : null }, c)))),
     h("tbody", null, ideas.map((x) => h("tr", { style: "cursor:default" },
       h("td", { class: "l name" }, x.symbol, x.top_rank ? h("span", { class: "flag fno" }, `Top ${x.top_rank}`) : null, chartLink(x.symbol)),
@@ -469,6 +470,7 @@ async function viewStocks(app) {
       h("td", { title: hourText(x.hourly) }, x.hourly ? `${x.hourly.buildup.replace(" build-up", "")} ${pct(x.hourly.oi_pct, 1)}` : "–"),
       h("td", null, x.warnings && x.warnings.length ? h("span", { class: "warn-count", title: x.warnings.join("\n") }, x.warnings.length) : "–"),
       h("td", null, Math.round(x.scoring.score)),
+      h("td", { title: x.v2 ? proposedTitle(x) : "Proposed score starts with the next scan" }, x.v2 ? `${Math.round(x.v2.score)} (#${x.rank_v2})` : "–"),
       h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(x) }, "I took this trade"),
         h("button", { class: "btn small", type: "button", onclick: () => watch(x) }, "Watchlist")))))));
 
@@ -522,6 +524,16 @@ function scanBar(lastTs) {
 function hourText(hr) {
   if (!hr) return "Signal hour: no OI snapshot yet (the scan saves one each hour)";
   return `Signal hour: ${hr.buildup}, OI ${pct(hr.oi_pct, 1)}, price ${pct(hr.px_pct)}${hr.from_prev_day ? " (since yesterday's close)" : ` since ${hr.since.slice(11, 16)}`}`;
+}
+/* Proposed score (testing only; the Top 5 still uses the live score). */
+function proposedTitle(x) {
+  const v = x.v2;
+  return `Proposed score (testing): signal-hour OI ${v.hour_oi}${v.hour_known ? "" : " (day OI used: no snapshot yet)"} + day OI ${v.day_oi} + candle shape ${v.shape} + size ${v.size} + sector ${x.scoring.boost}`;
+}
+function proposedLine(x) {
+  if (!x.v2) return null;
+  return h("div", { class: "meta proposed", title: proposedTitle(x) },
+    `Proposed (testing): ${Math.round(x.v2.score)}, rank #${x.rank_v2} · hour OI ${Math.round(x.v2.hour_oi)} · day OI ${Math.round(x.v2.day_oi)} · shape ${Math.round(x.v2.shape)} · size ${Math.round(x.v2.size)} · sector ${x.scoring.boost}`);
 }
 function warnList(w) {
   return w && w.length ? h("ul", { class: "warns", "aria-label": "Warnings" }, w.map((t) => h("li", null, t))) : null;
@@ -1173,7 +1185,7 @@ function viewReadme(app) {
         ["Signal hour", "OI over the signal hour shows covering, unwinding, flat or opposite build-up."],
       ])),
 
-    sec("Proposed score", "Testing only: logged for every idea, not used for the Top 5",
+    sec("Proposed score", "Testing only: shown on each idea as \u201cProposed\u201d and logged, but not used for the Top 5",
       tbl(["Part", "Points", "How it is measured"], [
         ["Signal-hour OI", "35", "Build-up in the trade's direction during the signal hour, counted up to 5% (covering or unwinding = 0). No snapshot yet: uses the day's OI."],
         ["Day OI", "25", "The day's futures OI change, counted up to 15%."],

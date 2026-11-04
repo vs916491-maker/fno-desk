@@ -409,3 +409,4 @@ tr.few td { color: var(--muted); }
 .readme-tbl td { white-space: normal; vertical-align: top; line-height: 1.5; }
 .readme-tbl td.name { white-space: nowrap; }
 .readme-tbl td:nth-child(2) { white-space: nowrap; }
+.idea .meta.proposed { border-top: 1px dashed var(--hair); padding-top: 6px; }
