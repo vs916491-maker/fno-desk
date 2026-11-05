@@ -109,10 +109,12 @@ async function addTrade(t) {
   }
   sampleTrades.push({ ...t, id: Date.now() });
 }
-async function updateTrade(id, vals) {
+async function updateTrade(id, vals, mustChange = false) {
   if (LIVE) {
-    const { error } = await sb.from("trades").update(vals).eq("id", id);
+    const { data, error } = await sb.from("trades").update(vals).eq("id", id).select("id");
     if (error) throw new Error(error.message);
+    // the database refuses changes to a closed trade once its fix window is over
+    if (mustChange && !(data && data.length)) throw new Error("this trade is now locked (the 7:40 pm check has passed). Reload the page.");
     return;
   }
   Object.assign(sampleTrades.find((x) => x.id === id) || {}, vals);
@@ -314,9 +316,43 @@ function chartLink(sym, kind = "stock", interval = "60") {
   return a;
 }
 
+/* A trade closed by hand can be fixed (edited or re-opened) until the next weekday 19:40 IST;
+   trades closed by the jobs, and older ones, stay locked. Same rule in the database
+   (supabase/011_fix_closed_trades.sql, trade_fix_until). */
+function fixUntil(t) {
+  if (t.status !== "closed" || !t.closed_at) return null;
+  const IST = 5.5 * 3600e3, c = new Date(Date.parse(t.closed_at) + IST);   // IST clock in UTC fields
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(Date.UTC(c.getUTCFullYear(), c.getUTCMonth(), c.getUTCDate() + i, 19, 40));
+    if (d.getUTCDay() >= 1 && d.getUTCDay() <= 5 && d > c) return new Date(d.getTime() - IST);
+  }
+  return null;
+}
+const canFix = (t) => { const u = fixUntil(t); return !!u && Date.now() < u.getTime(); };
+const fixLabel = (t) => {
+  const u = fixUntil(t), sameDay = u && u.toDateString() === new Date().toDateString();
+  return u ? `until ${sameDay ? "" : `${u.toLocaleDateString("en-IN", { weekday: "short" })} `}7:40 pm` : "";
+};
+/* Net % and ₹ for a trade closed at `exit` (same as the Close dialog). */
+function exitVals(tr, exit) {
+  const dir = tr.side === "Long" ? 1 : -1, vals = {};
+  vals.net_pct_after_cost = +(((exit / tr.entry) - 1) * 100 * dir - (tr.kind === "index" ? 0 : 0.1)).toFixed(3);
+  const q = tradeQty(tr);
+  vals.pnl_inr = q ? +((exit - tr.entry) * dir * q - (tr.charges || 0)).toFixed(2) : null;
+  return vals;
+}
+async function reopenTrade(t, onSaved) {
+  if (!confirm(`Reopen ${t.symbol}? The exit (${fmt(t.exit)}, ${t.exit_reason || "closed"}) is removed and the trade goes back to Open.`)) return;
+  try {
+    await updateTrade(t.id, { status: "open", exit: null, exit_time: null, exit_reason: null, net_pct_after_cost: null, pnl_inr: null }, true);
+    onSaved && onSaved();
+  } catch (ex) { alert(`Could not reopen: ${ex.message}`); }
+}
+
 // ------------------------------------------------------------------ trade dialog
 function tradeDialog(prefill, onSaved) {
-  if (prefill && prefill.id && prefill.status === "closed") return;   // closed trades are locked
+  if (prefill && prefill.id && prefill.status === "closed" && !canFix(prefill)) return;   // closed trades lock after the 7:40 pm check
+  const isClosed = !!(prefill && prefill.id && prefill.status === "closed");
   const dlg = document.getElementById("dlg");
   const t = { kind: "stock", side: "Long", source: "manual", ...prefill };
   const field = (label, name, attrs = {}, wide = false) =>
@@ -341,7 +377,12 @@ function tradeDialog(prefill, onSaved) {
       isIndex ? field("Futures expiry", "expiry", { type: "date" }) : null,
       field("Charges ₹ (optional)", "charges", { type: "number", step: "any" }),
       isIndex ? field("Method", "method") : null,
-      h("label", { class: "wide" }, "Notes", h("textarea", { name: "notes" }, t.notes || ""))),
+      h("label", { class: "wide" }, "Notes", h("textarea", { name: "notes" }, t.notes || "")),
+      ...(isClosed ? [
+        field("Exit price", "exit", { type: "number", step: "any", required: true }),
+        field("Exit time", "exit_time", { type: "datetime-local", value: String(t.exit_time || "").slice(0, 16), required: true }),
+        field("Reason", "exit_reason", {}, true)] : [])),
+    isClosed ? h("p", { class: "note" }, `This trade is closed. You can fix it ${fixLabel(t)}; after that it is locked.`) : null,
     err,
     h("div", { class: "btn-row" },
       h("button", { class: "btn primary", value: "save", type: "submit" }, "Save trade"),
@@ -357,8 +398,12 @@ function tradeDialog(prefill, onSaved) {
     };
     Object.assign(row, { lots: +v.lots || 1, lot_size: +v.lot_size || null, charges: v.charges ? +v.charges : 0 });
     if (v.kind === "index") Object.assign(row, { expiry: v.expiry || null, method: v.method || null, instrument: "Futures" });
+    if (isClosed) {
+      Object.assign(row, { exit: +v.exit, exit_time: v.exit_time, exit_reason: v.exit_reason || null });
+      Object.assign(row, exitVals({ ...t, ...row }, row.exit));
+    }
     try {
-      if (prefill.id) await updateTrade(prefill.id, row); else await addTrade({ ...row, status: "open" });
+      if (prefill.id) await updateTrade(prefill.id, row, isClosed); else await addTrade({ ...row, status: "open" });
       dlg.close();
       onSaved && onSaved();
     } catch (ex) { err.textContent = `Could not save: ${ex.message}`; }
@@ -414,11 +459,9 @@ function closeDialog(tr, onSaved) {
       h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel")));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const v = readForm(form), exit = +v.exit, dir = tr.side === "Long" ? 1 : -1;
-    const vals = { exit, exit_time: v.exit_time, exit_reason: v.exit_reason, status: "closed" };
-    vals.net_pct_after_cost = +(((exit / tr.entry) - 1) * 100 * dir - (tr.kind === "index" ? 0 : 0.1)).toFixed(3);
-    const q = tradeQty(tr);
-    if (q) vals.pnl_inr = +((exit - tr.entry) * dir * q - (tr.charges || 0)).toFixed(2);
+    const v = readForm(form), exit = +v.exit;
+    const vals = { exit, exit_time: v.exit_time, exit_reason: v.exit_reason, status: "closed", ...exitVals(tr, exit) };
+    if (vals.pnl_inr === null) delete vals.pnl_inr;
     try { await updateTrade(tr.id, vals); dlg.close(); onSaved && onSaved(); } catch (ex) { err.textContent = ex.message; }
   });
   dlg.replaceChildren(form);
@@ -946,7 +989,9 @@ async function viewTrades(app) {
     isOpen ? null : h("td", { class: sign(t.pnl_inr) }, inr(t.pnl_inr)),
     h("td", { class: "l" }, h("div", { class: "btn-row" },
       isOpen ? h("button", { class: "btn small", type: "button", onclick: () => closeDialog(t, rerender) }, "Close") : null,
-      isOpen ? h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit") : h("span", { class: "muted", title: "Closed trades are locked" }, "Locked"),
+      isOpen || canFix(t) ? h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit") : h("span", { class: "muted", title: "Closed trades are locked" }, "Locked"),
+      !isOpen && canFix(t) ? h("button", { class: "btn small", type: "button", onclick: () => reopenTrade(t, rerender) }, "Reopen") : null,
+      !isOpen && canFix(t) ? h("small", { class: "muted", title: "Closed trades lock after the 7:40 pm check" }, fixLabel(t)) : null,
       isOpen ? h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteTrade(t.id); rerender(); } } }, "Delete") : null)));
   const table = (rows, isOpen) => h("table", null,
     h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? ["Now", "P&L %", "P&L ₹"] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
@@ -1272,7 +1317,7 @@ function viewReadme(app) {
         "Stock trades close automatically at the stop, the target, or after 5 sessions (hourly candles; the 50 EMA exit is not applied to your trades).",
         "Index futures trades close at the stop or target on the futures price (checked every 15 minutes), or after 5 sessions.",
         "P&L ₹ = (sell − buy) × lots × lot size − charges. Stock P&L % is after 0.1% costs.",
-        "Totals at the top cover the current financial year (April–March) and start fresh each 1 April; completed years move to Year by year. Closed trades are locked.",
+        "Totals at the top cover the current financial year (April–March) and start fresh each 1 April; completed years move to Year by year. Closed trades are locked; a trade you close by hand can still be edited or reopened until the 7:40 pm check (trades closed automatically lock at once).",
       ])),
 
     sec("Timing", null,

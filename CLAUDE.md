@@ -43,7 +43,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 
 ## Rules / decisions to keep
 - Index trades: swing only, no automatic paper trades.
-- Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted).
+- Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted). Exception (5 Nov 2026, both sites): a trade closed by hand can be edited or reopened until the next weekday 19:40 IST (`closed_at` set by a trigger, `trade_fix_until()`, RLS in `supabase/011_fix_closed_trades.sql`); trades closed by the jobs lock at once.
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).
 - My Trades totals at the top cover the current financial year only (Apr–Mar) and start fresh each 1 April; completed years show in "Year by year".
 - Stock screener: day futures build-up stays the filter; signal-hour OI and the other checks (results, F&O ban, stop < 0.4% or > 2.5%, daily trend vs 20-day average, regime light, breakout volume, small/very big candle, chop) are **warnings only**. Sector boost unchanged until the signal log has enough data. Proposed score (signal-hour OI 35, day OI 25, candle shape 25 + size 15, + sector 10) is logged, not live.
