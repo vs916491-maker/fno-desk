@@ -266,21 +266,34 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                     "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,
                     "close": float(C[j]), "ema": float(E[j])})
 
-    # Short: rejection at a falling 50 EMA (no base needed)
-    body, pos, o_eff = shape(-1)
-    solid_bear = body >= config.EF_BODY and pos <= 1 - config.EF_CLOSE_ZONE
-    if (state == "falling" and solid_bear and H[j] >= E[j] * (1 - config.BB_TOUCH_PCT / 100)
-            and C[j] < E[j] and C[j] < o_eff and not any(x["side"] == "Short" for x in out)):
-        stop = float(H[j] * (1 + config.BB_STOP_BUFFER))
-        parts = {"strength": (lin(body, 0.5, 0.8) + lin(1 - pos, 2 / 3, 0.9)) / 2,
+    # Rejection at the 50 EMA (no base needed), both sides (6 Nov 2026, HINDALCO example):
+    # rising EMA, price had been above it, the candle's low touches or pierces the EMA and it
+    # closes back at or above it with a long lower wick. Short is the mirror on a falling EMA.
+    rng_j = H[j] - L[j]
+    before = range(max(0, j - config.BB_REJ_PRIOR_BARS), j)
+    for d, st_need in ((1, "rising"), (-1, "falling")):
+        long_ = d > 0
+        if state != st_need or any(x["side"] == ("Long" if long_ else "Short") for x in out):
+            continue
+        prior_side = sum((C[i] > E[i]) if long_ else (C[i] < E[i]) for i in before) / max(1, len(before))
+        touch = (L[j] <= E[j] * (1 + config.BB_TOUCH_PCT / 100)) if long_ else (H[j] >= E[j] * (1 - config.BB_TOUCH_PCT / 100))
+        back = (C[j] >= E[j] * (1 - config.BB_REJ_CLOSE_PCT / 100)) if long_ else (C[j] <= E[j] * (1 + config.BB_REJ_CLOSE_PCT / 100))
+        wick = ((min(O[j], C[j]) - L[j]) if long_ else (H[j] - max(O[j], C[j]))) / rng_j
+        pos = (C[j] - L[j]) / rng_j if long_ else (H[j] - C[j]) / rng_j       # close position toward the trade
+        if not (prior_side >= config.BB_BASE_HELD and touch and back and wick >= config.BB_REJ_WICK and pos >= 0.5):
+            continue
+        ext = L[j] if long_ else H[j]
+        stop = float(ext * (1 - config.BB_STOP_BUFFER) if long_ else ext * (1 + config.BB_STOP_BUFFER))
+        parts = {"strength": (lin(wick, 0.5, 0.8) + lin(pos, 0.5, 0.9)) / 2,
                  "size": 0.5 if size_x is None else lin(size_x, 1, 2),
                  "volume": 0.5 if vol_x is None else lin(vol_x, 1, 2),
                  "tight": 0.5, "length": 0.5, "ema": 1.0, "margin": 0.5}
-        out.append({"side": "Short", "dir": -1, "bar": j, "setup": "Falling EMA, rejection at the EMA", "reject": None,
+        out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j,
+                    "setup": f"{st_need.title()} EMA, rejection at the EMA", "reject": None,
                     "kind": "rejection", "state": state, "prior": state, "slope": _r(s0), "base_no": None, "run": 0,
-                    "base": None, "stop": stop, "stop_from": "rejection candle", "level": float(L[j]),
+                    "base": None, "stop": stop, "stop_from": "rejection wick", "level": float(E[j]),
                     "candle_pct": _r(candle_pct), "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,
-                    "close": float(C[j]), "ema": float(E[j])})
+                    "close": float(C[j]), "ema": float(E[j]), "wick": _r(wick)})
     return out
 
 

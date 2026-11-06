@@ -168,3 +168,7 @@ BB_ROLL_NEAR_PCT = 0.3            # base closes no more than 0.3% on the wrong s
 # count, stepping in one direction since price crossed the EMA; a cross resets the count.
 BB_BASE_DRIFT = 0.5               # sideways: first-to-last close move at most 50% of the base's range
 BB_COUNT_LOOKBACK = 150           # count bases over at most the last 150 candles
+# Rejection at the 50 EMA (both sides, 6 Nov 2026): Long on a rising EMA, Short on a falling one.
+BB_REJ_PRIOR_BARS = 7             # 80% of the 7 candles before were on the trade's side of the EMA
+BB_REJ_WICK = 0.5                 # wick toward the EMA at least half the candle
+BB_REJ_CLOSE_PCT = 0.1            # close back at/above the EMA (Short: at/below), 0.1% tolerance
