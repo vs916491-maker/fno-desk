@@ -1189,6 +1189,9 @@ async function viewRecord(app) {
     ["Price+OI: OI in the breakout candle", null, po.filter((r) => info(r).confirm === "breakout candle")],
     ["Price+OI: OI in the next candle", "One-candle wait; entry a candle later", po.filter((r) => info(r).confirm === "next candle")],
     ["Price+OI: rejected by OI", "Good chart, OI never confirmed or day build-up against", poRej],
+    ["Price Action: base breakouts", "Base 1 or 2, flattening EMA", pa.filter((r) => info(r).kind !== "rejection")],
+    ["Price Action: rejection at the 50 EMA", "Wick off a rising (Long) or falling (Short) EMA", pa.filter((r) => info(r).kind === "rejection")],
+    ["Price+OI: rejection at the 50 EMA", null, po.filter((r) => info(r).kind === "rejection")],
     ["Old rules: all ideas", "50 EMA cross + day futures build-up", ideas],
     ["Old rules: Top 5", null, ideas.filter((r) => r.top_rank)],
   ];
