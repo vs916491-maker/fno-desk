@@ -172,3 +172,4 @@ BB_COUNT_LOOKBACK = 150           # count bases over at most the last 150 candle
 BB_REJ_PRIOR_BARS = 7             # 80% of the 7 candles before were on the trade's side of the EMA
 BB_REJ_WICK = 0.5                 # wick toward the EMA at least half the candle
 BB_REJ_CLOSE_PCT = 0.1            # close back at/above the EMA (Short: at/below), 0.1% tolerance
+BB_REJ_TOUCH_BARS = 21            # rejection score: earlier EMA touches counted over ~3 sessions

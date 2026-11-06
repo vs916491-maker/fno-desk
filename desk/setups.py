@@ -284,12 +284,26 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
             continue
         ext = L[j] if long_ else H[j]
         stop = float(ext * (1 - config.BB_STOP_BUFFER) if long_ else ext * (1 + config.BB_STOP_BUFFER))
+        # Rejections have no base, so the base slots measure what matters for a rejection
+        # (6 Nov 2026): first touch, stop room, trend strength, reclaim.
+        touches, prev_touch = 0, False
+        for i in range(max(0, j - config.BB_REJ_TOUCH_BARS), j):
+            t = (L[i] <= E[i] * (1 + config.BB_TOUCH_PCT / 100)) if long_ else (H[i] >= E[i] * (1 - config.BB_TOUCH_PCT / 100))
+            if t and not prev_touch:
+                touches += 1
+            prev_touch = t
+        risk_pct = abs(C[j] - stop) / C[j] * 100
+        reclaim = (C[j] / E[j] - 1) * 100 * d
         parts = {"strength": (lin(wick, 0.5, 0.8) + lin(pos, 0.5, 0.9)) / 2,
                  "size": 0.5 if size_x is None else lin(size_x, 1, 2),
                  "volume": 0.5 if vol_x is None else lin(vol_x, 1, 2),
-                 "tight": 0.5, "length": 0.5, "ema": 1.0, "margin": 0.5}
+                 "tight": 1 - lin(touches, 0, 3),                  # first touch of the EMA scores best
+                 "length": lin(risk_pct / adr, 0.25, 0.6),         # stop room vs the daily range
+                 "ema": lin((s0 or 0) * d, 0.5, 2.0),              # how steep the trend is
+                 "margin": lin(reclaim, 0, 0.5)}                   # how far the close is back over the EMA
         out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j,
                     "setup": f"{st_need.title()} EMA, rejection at the EMA", "reject": None,
+                    "rej_detail": {"earlier_touches": touches, "stop_vs_adr": _r(risk_pct / adr), "reclaim_pct": _r(reclaim)},
                     "kind": "rejection", "state": state, "prior": state, "slope": _r(s0), "base_no": None, "run": 0,
                     "base": None, "stop": stop, "stop_from": "rejection wick", "level": float(E[j]),
                     "candle_pct": _r(candle_pct), "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,

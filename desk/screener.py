@@ -261,7 +261,7 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                 info = signals.context(df, e, j, st["side"], lv, extras.get("results", {}).get(sym), sym in banned,
                                        extras.get("regime"), today)
                 warns = [w for w in signals.warnings(st["side"], info, None, False) if "large risk" not in w]
-                idea = {**base, "kind": st["kind"], "prior": st["prior"], "slope": st["slope"], "base_no": st["base_no"],
+                idea = {**base, "kind": st["kind"], "rej_detail": st.get("rej_detail"), "prior": st["prior"], "slope": st["slope"], "base_no": st["base_no"],
                         "base": st["base"], "candle_pct": st["candle_pct"], "size_ratio": st["size_ratio"],
                         "vol_ratio": st["vol_ratio"], "levels": lv_r, "entry_status": status,
                         "entry_after": t_sig.strftime("%Y-%m-%dT%H:%M"), "lot_size": lots.get(sym),
