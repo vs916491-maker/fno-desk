@@ -280,16 +280,18 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
         side_ok = (C[j] > E[j]) if long_ else (C[j] < E[j])
         if wick < config.BB_REJ_WICK or pos < 0.5 or not side_ok:
             continue
-        pick = None
-        for b in bases:                                   # longest base first
+        pick, best = None, -1.0
+        for b in bases:                                   # the qualifying base with the deepest dip
             dipped = (L[j] < b["lo"] and C[j] > b["lo"] and C[j] <= b["hi"]) if long_ else \
                      (H[j] > b["hi"] and C[j] < b["hi"] and C[j] >= b["lo"])
             if not dipped:
                 continue
+            dp = (b["lo"] - L[j]) if long_ else (H[j] - b["hi"])
+            if dp <= best:
+                continue
             setup, reject, info = judge(d, b)
             if setup:
-                pick = (b, setup, info)
-                break
+                pick, best = (b, setup, info), dp
         if not pick:
             continue
         b, setup, info = pick
