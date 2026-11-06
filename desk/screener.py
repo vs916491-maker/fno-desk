@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from . import config, journal, signals, store
+from . import config, journal, setups, signals, store
 from .snapshot import now_ist
 from .sources import NSE, yahoo_chart
 
@@ -179,11 +179,195 @@ def save_day_run(db, doc: dict) -> str:
               "futures": {k: (x.get("futures") or {}).get(k) for k in ("buildup", "pchg_oi", "pchange")},
               "scoring": {k: (x.get("scoring") or {}).get(k) for k in ("score", "clarity", "oi_change", "boost", "sector", "sector_quadrant")}}
              for x in doc.get("ideas", [])]
+    bb_keep = ("symbol", "side", "signal_time", "setup", "state", "levels", "entry_status", "warnings", "top_rank",
+               "lot_size", "confirm", "also", "sector", "oi_breakout", "oi_next", "scoring", "futures", "rules")
+
+    def bb(lst):
+        return [{k: x.get(k) for k in bb_keep} for x in lst]
     runs.append({"ts": doc["ts"], "early": bool(doc.get("early")), "scanned": doc.get("scanned"),
-                 "ideas": ideas, "others": len(doc.get("others", []))})
+                 "ideas": ideas, "others": len(doc.get("others", [])),
+                 "pa": bb(doc.get("pa", {}).get("ideas", [])), "po": bb(doc.get("po", {}).get("ideas", [])),
+                 "po_waiting": len(doc.get("po", {}).get("waiting", []))})
     runs.sort(key=lambda r: r["ts"])
     db.put_doc(DAY_KEY, {"date": day, "runs": runs})
     return f"day log: run {len(runs)} of {day}"
+
+
+# ------------------------------------------------------------------ base breakout rules (two tabs)
+RULES_PA, RULES_PO = "pa", "po"
+TAB_NAME = {RULES_PA: "Price Action", RULES_PO: "Price+OI"}
+
+
+def _entry_after(df, full, k):
+    """Entry at the open of the candle after k: the next completed candle, the candle in
+    progress (its open is known), or the close of k when nothing has opened yet."""
+    if k + 1 < len(df):
+        return float(df.Open.iloc[k + 1]), "entered at next open", df.index[k + 1]
+    later = full[full.index > df.index[k]]
+    if len(later) and pd.notna(later.Open.iloc[0]):
+        return float(later.Open.iloc[0]), f"entered at {later.index[0]:%H:%M} open (candle in progress)", later.index[0]
+    return float(df.Close.iloc[k]), "enter at the next candle's open", None
+
+
+def _after_entry(df, k_entry, lv, d):
+    """Has the trade (entered at the open of candle k_entry) already hit its stop or target?"""
+    for k in range(k_entry, len(df)):
+        hi, lo = float(df.High.iloc[k]), float(df.Low.iloc[k])
+        if (d > 0 and lo <= lv["stop"]) or (d < 0 and hi >= lv["stop"]):
+            return "Already stopped out"
+        if (d > 0 and hi >= lv["target"]) or (d < 0 and lo <= lv["target"]):
+            return "Target already reached"
+    return None
+
+
+def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: dict, extras: dict,
+                   banned: set, lots: dict, today) -> dict:
+    """Price Action and Price+OI tabs (desk/setups.py)."""
+    pa, po, waiting, po_rej, chart_rej = [], [], [], [], []
+    for sym, full in candles.items():
+        if full.empty:
+            continue
+        df = completed(full, now)
+        if len(df) < config.EF_EMA + config.BB_SLOPE_BARS + config.BB_BASE_MAX:
+            continue
+        e = ema(df.Close, config.EF_EMA)
+        last_day = df.index[-1].date()
+        for j in range(len(df) - config.BB_SIGNAL_BARS, len(df)):
+            if df.index[j].date() != last_day:
+                continue
+            for st in setups.detect(df, e, j):
+                t_sig = df.index[j]
+                base = {"symbol": sym, "side": st["side"], "signal_time": t_sig.strftime("%Y-%m-%dT%H:%M"),
+                        "setup": st["setup"], "state": st["state"], "close": round(st["close"], 2)}
+                if st["reject"]:
+                    chart_rej.append({**base, "setup": None, "reason": st["reject"]})
+                    continue
+                d = st["dir"]
+                entry, status, entry_t = _entry_after(df, full, j)
+                lv = setups.levels(st, entry)
+                if not lv:
+                    chart_rej.append({**base, "reason": "No valid stop: entry already beyond the stop"})
+                    continue
+                if lv["risk_pct"] > config.BB_MAX_RISK:
+                    chart_rej.append({**base, "reason": f"Stop {lv['risk_pct']:.1f}% away (more than {config.BB_MAX_RISK:.0f}%)"})
+                    continue
+                done = _after_entry(df, j + 1, lv, d)
+                if done:
+                    chart_rej.append({**base, "reason": done})
+                    continue
+                fut = fut_of(sym)
+                sv = sectors.get(sym, {})
+                sec = sv.get("long" if d > 0 else "short")
+                lv_r = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in lv.items()}
+                info = signals.context(df, e, j, st["side"], lv, extras.get("results", {}).get(sym), sym in banned,
+                                       extras.get("regime"), today)
+                warns = [w for w in signals.warnings(st["side"], info, None, False) if "large risk" not in w]
+                idea = {**base, "kind": st["kind"], "prior": st["prior"], "slope": st["slope"], "base_no": st["base_no"],
+                        "base": st["base"], "candle_pct": st["candle_pct"], "size_ratio": st["size_ratio"],
+                        "vol_ratio": st["vol_ratio"], "levels": lv_r, "entry_status": status,
+                        "entry_after": t_sig.strftime("%Y-%m-%dT%H:%M"), "lot_size": lots.get(sym),
+                        "sector": sec, "sector_quadrant": sv.get("long_q" if d > 0 else "short_q"),
+                        "info": info, "warnings": warns, "parts": {k: round(v, 3) for k, v in st["parts"].items()},
+                        "last_price": float(df.Close.iloc[-1])}
+                if fut:
+                    idea["futures"] = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in fut.items()
+                                       if k in ("pchange", "pchg_oi", "oi_total", "chg_oi_total", "ltp", "spot")}
+                    p, c = fut.get("pchange") or 0, fut.get("chg_oi_total") or 0
+                    idea["futures"]["buildup"] = ("Long build-up" if p > 0 and c > 0 else "Short build-up" if p < 0 and c > 0
+                                                  else "Short covering" if p > 0 else "Long unwinding")
+                # signal-hour OI of the breakout candle (shown on both tabs)
+                px_move = float(df.Close.iloc[j] - df.Close.iloc[j - 1])
+                chk = setups.oi_check(setups.candle_oi(snaps, sym, t_sig, fut, now),
+                                      setups.usual_oi(snaps, sym, t_sig.to_pydatetime(), t_sig.strftime("%H:%M") == setups.OPEN),
+                                      px_move, d)
+                idea["oi_breakout"] = chk
+                # ---- Price Action: chart only
+                sc = setups.score(st["parts"], config.BB_W_PA, sector=bool(sec))
+                pa.append({**idea, "rules": RULES_PA, "scoring": sc})
+                # ---- Price+OI
+                if not fut:
+                    po_rej.append({**idea, "rules": RULES_PO, "reason": "Futures OI unavailable"})
+                    continue
+                want = "Long build-up" if d > 0 else "Short build-up"
+                day_with = idea["futures"]["buildup"] == want
+                need_day = st["state"] in ("rising", "falling")
+                confirm, hour = None, chk
+                if chk["ok"]:
+                    confirm = "breakout candle"
+                elif j + 1 < len(df):
+                    t1 = df.index[j + 1]
+                    c1 = float(df.Close.iloc[j + 1])
+                    still = (c1 > st["level"]) if d > 0 else (c1 < st["level"])
+                    held = (float(df.Low.iloc[j + 1]) > lv["stop"]) if d > 0 else (float(df.High.iloc[j + 1]) < lv["stop"])
+                    chk2 = setups.oi_check(setups.candle_oi(snaps, sym, t1, fut, now),
+                                           setups.usual_oi(snaps, sym, t1.to_pydatetime(), t1.strftime("%H:%M") == setups.OPEN),
+                                           c1 - float(df.Close.iloc[j]), d)
+                    idea["oi_next"] = chk2
+                    if chk2["ok"] and still and held:
+                        confirm, hour = "next candle", chk2
+                        entry, status, entry_t = _entry_after(df, full, j + 1)
+                        lv2 = setups.levels(st, entry)
+                        if not lv2 or lv2["risk_pct"] > config.BB_MAX_RISK:
+                            po_rej.append({**idea, "rules": RULES_PO, "reason": "OI confirmed a candle later, but the stop is now too far"})
+                            continue
+                        done = _after_entry(df, j + 2, lv2, d)
+                        if done:
+                            po_rej.append({**idea, "rules": RULES_PO, "reason": f"OI confirmed a candle later; {done.lower()}"})
+                            continue
+                        idea = {**idea, "levels": {k: (round(v, 2) if isinstance(v, float) else v) for k, v in lv2.items()},
+                                "entry_status": status, "entry_after": t1.strftime("%Y-%m-%dT%H:%M")}
+                    else:
+                        why = chk2["why"] or ("price fell back into the base" if not still else "stop hit")
+                        po_rej.append({**idea, "rules": RULES_PO, "reason": f"OI never confirmed: breakout candle {chk['why']}; next candle {why}"})
+                        continue
+                else:
+                    waiting.append({**idea, "rules": RULES_PO, "reason": f"Waiting for OI: breakout candle {chk['why']}"})
+                    continue
+                if need_day and not day_with:
+                    po_rej.append({**idea, "rules": RULES_PO, "confirm": confirm,
+                                   "reason": f"Day futures: {idea['futures']['buildup'].lower()}, not {want.lower()} ({st['state']} EMA needs it)"})
+                    continue
+                sc = setups.score(st["parts"], config.BB_W_PO, hour_mult=hour["mult"],
+                                  day_oi=idea["futures"].get("pchg_oi"), day_with=day_with, sector=bool(sec))
+                po.append({**idea, "rules": RULES_PO, "confirm": confirm, "scoring": sc})
+
+    def rank(lst):
+        lst.sort(key=lambda x: (-x["scoring"]["score"], x["symbol"]))
+        seen = set()
+        for x in lst:
+            k = (x["symbol"], x["side"])
+            if k not in seen and len(seen) < 5:
+                seen.add(k)
+                x["top_rank"] = len(seen)
+        return lst
+    pa_keys = {(x["symbol"], x["side"]) for x in pa}
+    po_keys = {(x["symbol"], x["side"]) for x in po}
+    for x in pa:
+        x["also"] = (x["symbol"], x["side"]) in po_keys
+    for x in po:
+        x["also"] = (x["symbol"], x["side"]) in pa_keys
+    return {"pa": rank(pa), "po": rank(po), "waiting": waiting, "po_rejected": po_rej, "chart_rejected": chart_rej}
+
+
+def dry_report(doc: dict) -> str:
+    """Plain-text list of both tabs (run log and test runs)."""
+    def line(x):
+        lv, sc = x["levels"], x["scoring"]
+        oi = x.get("oi_next") if x.get("confirm") == "next candle" else x.get("oi_breakout") or {}
+        return (f"  {'#' + str(x['top_rank']) if x.get('top_rank') else '  '} {x['symbol']:<11}{x['side']:<6}{x['signal_time'][11:]} "
+                f"{x['setup']:<34} entry {lv['entry']:.2f} stop {lv['stop']:.2f} ({lv['stop_from']}, {lv['risk_pct']:.1f}%) "
+                f"tgt {lv['target']:.2f} score {sc['score']:.0f}"
+                + (f" | {x.get('confirm')}, OI {oi.get('mult')}x, day {x.get('futures', {}).get('buildup')} {x.get('futures', {}).get('pchg_oi')}%"
+                   if x.get("rules") == "po" else ""))
+    pa, po = doc["pa"], doc["po"]
+    out = [f"{doc['ts']} PRICE ACTION: {len(pa['ideas'])} idea(s)"] + [line(x) for x in pa["ideas"]]
+    out += [f"PRICE+OI: {len(po['ideas'])} idea(s), {len(po['waiting'])} waiting, {len(po['rejected'])} rejected by OI"]
+    out += [line(x) for x in po["ideas"]]
+    out += [f"  wait {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in po["waiting"]]
+    out += [f"  rej  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in po["rejected"]]
+    out += [f"Chart setups not listed: {len(pa['others'])}"] + [
+        f"  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in pa["others"][:40]]
+    return "\n".join(out)
 
 
 def last_candle_end(now: datetime) -> datetime:
@@ -244,14 +428,21 @@ def quick_trade_prices(now, db=None) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--dry", action="store_true", help="test run: read the live data, write nothing")
+    ap.add_argument("--at", help="test run as of this IST time, e.g. 2026-11-06T14:20 (implies --dry)")
     args = ap.parse_args()
     now = now_ist()
+    if args.at:
+        args.dry = args.force = True
+        now = datetime.fromisoformat(args.at)
     if not args.force and (now.weekday() >= 5 or not ("10:10" <= now.strftime("%H:%M") <= "15:59")):
         print(f"{now:%a %H:%M} IST: outside scan hours.")
         if now.weekday() < 5 and "09:15" <= now.strftime("%H:%M") <= "15:59":
             quick_trade_prices(now)      # Run scan before 10:10: still refresh your open trades
         return 0
     db = store.connect()
+    if args.dry:
+        db = store.ReadOnly(db)
     if not args.force and already_scanned(db, now):
         print("This candle has already been scanned (the other scheduler got there first).")
         quick_trade_prices(now, db)
@@ -289,12 +480,26 @@ def main() -> int:
     extras: dict = {}
     sectors = sector_view(db, extras)
     snaps = signals.load_snaps(db)
+    if args.at:      # test run as of a past time: only the snapshots that existed then
+        snaps = [x for x in snaps if datetime.fromisoformat(x["ts"]) <= now + timedelta(minutes=10)]
     try:
         banned = nse.fo_ban()
     except Exception as exc:  # noqa: BLE001
         banned = set()
         problems.append(f"F&O ban list: {exc}"[:160])
     today = now.date()
+    fut_cache: dict = {}
+
+    def fut_of(sym):
+        if sym not in fut_cache:
+            try:
+                fut_cache[sym] = nse.stock_futures(sym)
+            except Exception as exc:  # noqa: BLE001
+                fut_cache[sym] = None
+                problems.append(f"{sym} futures: {exc}"[:160])
+        f = fut_cache[sym]
+        return dict(f) if f else None
+
     ideas, others, rejected = [], [], []
     for sym, df, e, sig, full in raw:
         side = "Long" if sig["dir"] > 0 else "Short"
@@ -322,11 +527,7 @@ def main() -> int:
         if status != "open":
             others.append({**base, "reason": why})
             continue
-        try:
-            fut = nse.stock_futures(sym)
-        except Exception as exc:  # noqa: BLE001
-            fut = None
-            problems.append(f"{sym} futures: {exc}"[:160])
+        fut = fut_of(sym)
         if not fut:
             others.append({**base, "reason": "Futures OI unavailable"})
             continue
@@ -361,11 +562,20 @@ def main() -> int:
     ideas.sort(key=lambda x: x["signal_time"], reverse=True)
     others.sort(key=lambda x: x["signal_time"], reverse=True)
 
-    closed = 0
+    # new rules: Price Action and Price+OI tabs
     try:
-        closed = save_trade_prices(db, candles, now, lots)
+        bb = base_breakouts(candles, now, fut_of, snaps, sectors, extras, banned, lots, today)
     except Exception as exc:  # noqa: BLE001
-        problems.append(f"journal: {exc}"[:200])
+        bb = {"pa": [], "po": [], "waiting": [], "po_rejected": [], "chart_rejected": []}
+        problems.append(f"base breakout rules failed: {exc}"[:240])
+        traceback.print_exc()
+
+    closed = 0
+    if not args.dry:
+        try:
+            closed = save_trade_prices(db, candles, now, lots)
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"journal: {exc}"[:200])
 
     doc = {"ts": now.strftime("%Y-%m-%dT%H:%M"), "scanned": len(symbols), "no_candles": missing[:40],
            "ideas": ideas, "top5": [x["symbol"] + ":" + x["side"] for x in ranked[:5]],
@@ -377,9 +587,16 @@ def main() -> int:
                      if last_completed is not None and last_completed.date() < now.date() and now.weekday() < 5
                      and now.strftime("%H:%M") >= "09:15" else None),
            "regime": extras.get("regime"), "fo_ban": sorted(banned),
+           # new rules (6 Nov 2026): the two screener tabs. "ideas"/"others" above are the old
+           # 50 EMA cross rules, kept for the Track record only.
+           "pa": {"ideas": bb["pa"], "others": bb["chart_rejected"]},
+           "po": {"ideas": bb["po"], "waiting": bb["waiting"], "rejected": bb["po_rejected"]},
            "rules": {"ema": config.EF_EMA, "target_r": config.EF_TARGET_R, "max_days": config.EF_MAX_DAYS,
                      "top5_weights": config.TOP5_WEIGHTS, "sector_boost": config.SECTOR_BOOST}}
     db.put_doc("stock_screener", doc)
+    if args.dry:
+        print(dry_report(doc))
+        return 0
 
     # after the results are out: day log of runs, signal log, results of earlier signals, OI snapshot
     after = []
@@ -389,7 +606,9 @@ def main() -> int:
         after.append(f"day log not saved: {exc}"[:200])
     try:
         after.append(signals.write_log(db, signals.log_rows(ideas, "idea", doc["ts"]) +
-                                       signals.log_rows(rejected, "rejected", doc["ts"])))
+                                       signals.log_rows(rejected, "rejected", doc["ts"]) +
+                                       signals.log_bb(bb["pa"] + bb["po"], "idea", doc["ts"]) +
+                                       signals.log_bb(bb["po_rejected"], "rejected", doc["ts"])))
     except Exception as exc:  # noqa: BLE001
         after.append(f"signal log not written: {exc}"[:220] + (" (run supabase/010_signal_log.sql)" if "signal_log" in str(exc) else ""))
     try:
@@ -401,7 +620,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         after.append(f"OI snapshot failed: {exc}"[:220])
 
-    summary = (f"{doc['ts']}: scanned {len(symbols)} (no candles {len(missing)}), trend switches {len(raw)}, "
+    summary = (dry_report(doc) + "\nOld rules: " + f"{doc['ts']}: scanned {len(symbols)} (no candles {len(missing)}), trend switches {len(raw)}, "
                f"ideas {len(ideas)}, others {len(others)}, sector data {'yes' if sectors else 'no'}, "
                f"trades closed {closed}, problems {len(problems)}\n"
                + "\n".join(f"#{x.get('top_rank', '-')} {x['symbol']} {x['side']} {x['signal_time']} "
