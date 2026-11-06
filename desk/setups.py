@@ -266,6 +266,61 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                     "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,
                     "close": float(C[j]), "ema": float(E[j])})
 
+    # Shakeout in the base (6 Nov 2026, his HAVELLS example): a base that qualifies (base 1-2,
+    # held on the trade's side of the EMA) and a candle that dips below the base low, then
+    # closes back inside the base with a long lower wick. Long on a rising/flat EMA, Short the
+    # mirror on a falling/flat EMA. Entry at the next open (no wait, see BB_SHK_CONFIRM).
+    rng_s = H[j] - L[j]
+    for d, ok_states in ((1, ("rising", "flat")), (-1, ("falling", "flat"))):
+        long_ = d > 0
+        if state not in ok_states or any(x["side"] == ("Long" if long_ else "Short") for x in out):
+            continue
+        wick = ((min(O[j], C[j]) - L[j]) if long_ else (H[j] - max(O[j], C[j]))) / rng_s
+        pos = (C[j] - L[j]) / rng_s if long_ else (H[j] - C[j]) / rng_s
+        side_ok = (C[j] > E[j]) if long_ else (C[j] < E[j])
+        if wick < config.BB_REJ_WICK or pos < 0.5 or not side_ok:
+            continue
+        pick = None
+        for b in bases:                                   # longest base first
+            dipped = (L[j] < b["lo"] and C[j] > b["lo"] and C[j] <= b["hi"]) if long_ else \
+                     (H[j] > b["hi"] and C[j] < b["hi"] and C[j] >= b["lo"])
+            if not dipped:
+                continue
+            setup, reject, info = judge(d, b)
+            if setup:
+                pick = (b, setup, info)
+                break
+        if not pick:
+            continue
+        b, setup, info = pick
+        dip = ((b["lo"] - L[j]) / b["lo"] if long_ else (H[j] - b["hi"]) / b["hi"]) * 100
+        wick_pct = wick * rng_s / C[j] * 100
+        fails = []
+        if dip / adr < config.BB_SHK_DIP_ADR:
+            fails.append(f"dipped {_r(dip / adr)}x the daily range past the base (needs {config.BB_SHK_DIP_ADR}x)")
+        if wick_pct / adr < config.BB_SHK_WICK_ADR:
+            fails.append(f"wick {_r(wick_pct / adr)}x the daily range (needs {config.BB_SHK_WICK_ADR}x)")
+        ext = L[j] if long_ else H[j]
+        stop = float(ext * (1 - config.BB_STOP_BUFFER) if long_ else ext * (1 + config.BB_STOP_BUFFER))
+        parts = {"strength": (lin(wick_pct / adr, 0.3, 1.0) + lin(pos, 0.5, 0.9)) / 2,
+                 "size": 0.5 if size_x is None else lin(size_x, 1, 2),
+                 "volume": 0.5 if vol_x is None else lin(vol_x, 1, 2),
+                 "tight": 1 - lin(b["rng"] / adr, 0.5, 1.5), "length": lin(b["n"], 7, 21),
+                 "ema": 1 - lin(abs(C[j] / E[j] - 1) * 100, 2, 6),
+                 "margin": lin(dip / adr, 0, 0.5)}              # shakeout depth past the base vs the daily range
+        base_word = setup.split(", ")[-1] if ", base" in setup else f"base {info['base_no']}"
+        out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j, "check_fail": fails,
+                    "setup": f"{state.title()} EMA, {base_word} shakeout", "reject": None,
+                    "shk_detail": {"dip_vs_adr": _r(dip / adr), "wick_vs_adr": _r(wick_pct / adr), "base_candles": b["n"],
+                                   "base_lo": _r(b["lo"]), "base_hi": _r(b["hi"])},
+                    "kind": "shakeout", "state": state, "prior": info["prior"], "slope": _r(s0), "base_no": info["base_no"],
+                    "run": info["run"],
+                    "base": {"n": b["n"], "hi": _r(b["hi"]), "lo": _r(b["lo"]), "range_pct": _r(b["rng"]),
+                             "adr_pct": _r(adr), "held": _r(info["held"])},
+                    "stop": stop, "stop_from": "shakeout wick", "level": b["lo"] if long_ else b["hi"],
+                    "candle_pct": _r(candle_pct), "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,
+                    "close": float(C[j]), "ema": float(E[j]), "wick": _r(wick)})
+
     # Rejection at the 50 EMA (no base needed), both sides (6 Nov 2026, HINDALCO example):
     # rising EMA, price had been above it, the candle's low touches or pierces the EMA and it
     # closes back at or above it with a long lower wick. Short is the mirror on a falling EMA.

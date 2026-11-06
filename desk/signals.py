@@ -287,7 +287,8 @@ def log_bb(items: list[dict], kind: str, scan_ts: str) -> list[dict]:
                 "futures": {k: (x.get("futures") or {}).get(k) for k in ("buildup", "pchg_oi", "pchange")},
                 "scoring": x.get("scoring"), "parts": x.get("parts"), "sector": x.get("sector"),
                 "candle_pct": x.get("candle_pct"), "size_ratio": x.get("size_ratio"), "vol_ratio": x.get("vol_ratio"),
-                "entry_status": x.get("entry_status"), "reason": x.get("reason"), "lot_size": x.get("lot_size")}
+                "entry_status": x.get("entry_status"), "reason": x.get("reason"), "lot_size": x.get("lot_size"),
+                "rej_detail": x.get("rej_detail"), "shk_detail": x.get("shk_detail")}
         rows.append({"key": f"{x['rules']}|{x['symbol']}|{x['side']}|{x['signal_time']}", "symbol": x["symbol"],
                      "side": x["side"], "signal_time": x["signal_time"], "scan_ts": scan_ts, "kind": kind,
                      "top_rank": x.get("top_rank"), "rank_v2": None, "score": (x.get("scoring") or {}).get("score"),
