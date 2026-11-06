@@ -173,3 +173,9 @@ BB_REJ_PRIOR_BARS = 7             # 80% of the 7 candles before were on the trad
 BB_REJ_WICK = 0.5                 # wick toward the EMA at least half the candle
 BB_REJ_CLOSE_PCT = 0.1            # close back at/above the EMA (Short: at/below), 0.1% tolerance
 BB_REJ_TOUCH_BARS = 21            # rejection score: earlier EMA touches counted over ~3 sessions
+# Rejection checks (6 Nov 2026, his HINDALCO example; all must pass, else logged as failed):
+BB_REJ_SIZE = 1.5                 # A. candle range at least 1.5x the stock's usual candle for that hour
+BB_REJ_WICK_ADR = 0.5             # B. wick at least 0.5x the average daily range
+BB_REJ_DEPTH_ADR = 0.25           # C. low pierces the EMA by at least 0.25x the daily range (Short: high)
+                                  # D. next candle closes beyond the rejection candle's close; entry a candle later
+BB_REJ_MAX_TOP5 = 2               # at most 2 rejection setups in each Top 5

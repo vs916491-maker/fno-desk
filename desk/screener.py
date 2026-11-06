@@ -223,7 +223,7 @@ def _after_entry(df, k_entry, lv, d):
 def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: dict, extras: dict,
                    banned: set, lots: dict, today) -> dict:
     """Price Action and Price+OI tabs (desk/setups.py)."""
-    pa, po, waiting, po_rej, chart_rej = [], [], [], [], []
+    pa, po, waiting, po_rej, chart_rej, rej_fail = [], [], [], [], [], []
     for sym, full in candles.items():
         if full.empty:
             continue
@@ -242,7 +242,37 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                     chart_rej.append({**base, "setup": None, "reason": st["reject"]})
                     continue
                 d = st["dir"]
-                entry, status, entry_t = _entry_after(df, full, j)
+                k_in = j                                  # entry at the open of the candle after k_in
+                if st["kind"] == "rejection":
+                    # checks A-C from setups.detect; D: the next candle must close beyond the
+                    # rejection candle's close without touching the stop. Entry a candle later.
+                    fails = list(st.get("check_fail") or [])
+                    if j + 1 >= len(df):
+                        chart_rej.append({**base, "reason": ("Rejection checks failed: " + "; ".join(fails)) if fails
+                                          else "Rejection: waiting for the next candle to confirm"})
+                        continue
+                    c1 = float(df.Close.iloc[j + 1])
+                    if not ((c1 > st["close"]) if d > 0 else (c1 < st["close"])):
+                        fails.append("next candle did not close " + ("above" if d > 0 else "below") + " the rejection candle")
+                    if (float(df.Low.iloc[j + 1]) <= st["stop"]) if d > 0 else (float(df.High.iloc[j + 1]) >= st["stop"]):
+                        fails.append("next candle hit the stop")
+                    if fails:
+                        why = "Rejection checks failed: " + "; ".join(fails)
+                        chart_rej.append({**base, "reason": why})
+                        # logged with an entry right after the rejection candle, to see later
+                        # whether the checks keep the losers out
+                        e0, s0_, _ = _entry_after(df, full, j)
+                        lv0 = setups.levels(st, e0)
+                        if lv0 and lv0["risk_pct"] <= config.BB_MAX_RISK:
+                            rej_fail.append({**base, "rules": RULES_PA, "kind": "rejection", "prior": st["prior"],
+                                             "rej_detail": st.get("rej_detail"), "candle_pct": st["candle_pct"],
+                                             "size_ratio": st["size_ratio"], "vol_ratio": st["vol_ratio"],
+                                             "levels": {k: (round(v, 2) if isinstance(v, float) else v) for k, v in lv0.items()},
+                                             "entry_status": s0_, "entry_after": t_sig.strftime("%Y-%m-%dT%H:%M"),
+                                             "parts": {k: round(v, 3) for k, v in st["parts"].items()}, "reason": why})
+                        continue
+                    k_in = j + 1
+                entry, status, entry_t = _entry_after(df, full, k_in)
                 lv = setups.levels(st, entry)
                 if not lv:
                     chart_rej.append({**base, "reason": "No valid stop: entry already beyond the stop"})
@@ -250,7 +280,7 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                 if lv["risk_pct"] > config.BB_MAX_RISK:
                     chart_rej.append({**base, "reason": f"Stop {lv['risk_pct']:.1f}% away (more than {config.BB_MAX_RISK:.0f}%)"})
                     continue
-                done = _after_entry(df, j + 1, lv, d)
+                done = _after_entry(df, k_in + 1, lv, d)
                 if done:
                     chart_rej.append({**base, "reason": done})
                     continue
@@ -264,7 +294,7 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                 idea = {**base, "kind": st["kind"], "rej_detail": st.get("rej_detail"), "prior": st["prior"], "slope": st["slope"], "base_no": st["base_no"],
                         "base": st["base"], "candle_pct": st["candle_pct"], "size_ratio": st["size_ratio"],
                         "vol_ratio": st["vol_ratio"], "levels": lv_r, "entry_status": status,
-                        "entry_after": t_sig.strftime("%Y-%m-%dT%H:%M"), "lot_size": lots.get(sym),
+                        "entry_after": df.index[k_in].strftime("%Y-%m-%dT%H:%M"), "lot_size": lots.get(sym),
                         "sector": sec, "sector_quadrant": sv.get("long_q" if d > 0 else "short_q"),
                         "info": info, "warnings": warns, "parts": {k: round(v, 3) for k, v in st["parts"].items()},
                         "last_price": float(df.Close.iloc[-1])}
@@ -332,10 +362,14 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
 
     def rank(lst):
         lst.sort(key=lambda x: (-x["scoring"]["score"], x["symbol"]))
-        seen = set()
+        seen, n_rej = set(), 0
         for x in lst:
             k = (x["symbol"], x["side"])
             if k not in seen and len(seen) < 5:
+                if x.get("kind") == "rejection":
+                    if n_rej >= config.BB_REJ_MAX_TOP5:      # at most 2 rejections in a Top 5
+                        continue
+                    n_rej += 1
                 seen.add(k)
                 x["top_rank"] = len(seen)
         return lst
@@ -345,7 +379,8 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
         x["also"] = (x["symbol"], x["side"]) in po_keys
     for x in po:
         x["also"] = (x["symbol"], x["side"]) in pa_keys
-    return {"pa": rank(pa), "po": rank(po), "waiting": waiting, "po_rejected": po_rej, "chart_rejected": chart_rej}
+    return {"pa": rank(pa), "po": rank(po), "waiting": waiting, "po_rejected": po_rej, "chart_rejected": chart_rej,
+            "rej_failed": rej_fail}
 
 
 def dry_report(doc: dict) -> str:
@@ -369,6 +404,9 @@ def dry_report(doc: dict) -> str:
         + (f" | {x['rej_detail']}" if x.get("rej_detail") else "")
         + f" | candle {x.get('candle_pct')}% size {x.get('size_ratio')}x vol {x.get('vol_ratio')}x"
         for x in pa["ideas"] if x.get("top_rank")]
+    out += ["Rejection setups not listed:"] + [
+        f"  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in pa["others"]
+        if str(x.get("reason", "")).startswith("Rejection")]
     out += [f"Chart setups not listed: {len(pa['others'])}"] + [
         f"  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in pa["others"][:40]]
     return "\n".join(out)
@@ -570,7 +608,7 @@ def main() -> int:
     try:
         bb = base_breakouts(candles, now, fut_of, snaps, sectors, extras, banned, lots, today)
     except Exception as exc:  # noqa: BLE001
-        bb = {"pa": [], "po": [], "waiting": [], "po_rejected": [], "chart_rejected": []}
+        bb = {"pa": [], "po": [], "waiting": [], "po_rejected": [], "chart_rejected": [], "rej_failed": []}
         problems.append(f"base breakout rules failed: {exc}"[:240])
         traceback.print_exc()
 
@@ -612,7 +650,7 @@ def main() -> int:
         after.append(signals.write_log(db, signals.log_rows(ideas, "idea", doc["ts"]) +
                                        signals.log_rows(rejected, "rejected", doc["ts"]) +
                                        signals.log_bb(bb["pa"] + bb["po"], "idea", doc["ts"]) +
-                                       signals.log_bb(bb["po_rejected"], "rejected", doc["ts"])))
+                                       signals.log_bb(bb["po_rejected"] + bb["rej_failed"], "rejected", doc["ts"])))
     except Exception as exc:  # noqa: BLE001
         after.append(f"signal log not written: {exc}"[:220] + (" (run supabase/010_signal_log.sql)" if "signal_log" in str(exc) else ""))
     try:

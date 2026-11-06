@@ -305,7 +305,21 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                  "length": lin(risk_pct / adr, 0.25, 0.6),         # stop room vs the daily range
                  "ema": lin((s0 or 0) * d, 0.5, 2.0),              # how steep the trend is
                  "margin": lin(max(depth, 0) / adr, 0, 0.5)}       # shakeout depth past the EMA vs the daily range
-        out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j,
+        # Checks A-C (6 Nov 2026: only forceful rejections like HINDALCO, not ordinary candles).
+        # Check D (next candle confirms) is done by the screener.
+        size_chk = size_x
+        if size_chk is None:                          # no same-hour history: vs the last 35 candles
+            prev_r = H[max(0, j - 35):j] - L[max(0, j - 35):j]
+            prev_r = prev_r[prev_r > 0]
+            size_chk = rng_j / prev_r.mean() if len(prev_r) else None
+        fails = []
+        if size_chk is None or size_chk < config.BB_REJ_SIZE:
+            fails.append(f"candle {_r(size_chk) if size_chk is not None else '?'}x its usual size (needs {config.BB_REJ_SIZE}x)")
+        if wick_pct / adr < config.BB_REJ_WICK_ADR:
+            fails.append(f"wick {_r(wick_pct / adr)}x the daily range (needs {config.BB_REJ_WICK_ADR}x)")
+        if max(depth, 0) / adr < config.BB_REJ_DEPTH_ADR:
+            fails.append(f"went {_r(max(depth, 0) / adr)}x the daily range past the EMA (needs {config.BB_REJ_DEPTH_ADR}x)")
+        out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j, "check_fail": fails,
                     "setup": f"{st_need.title()} EMA, rejection at the EMA", "reject": None,
                     "rej_detail": {"earlier_touches": touches, "stop_vs_adr": _r(risk_pct / adr), "reclaim_pct": _r(reclaim),
                                    "wick_vs_adr": _r(wick_pct / adr), "depth_vs_adr": _r(max(depth, 0) / adr)},
