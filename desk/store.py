@@ -153,3 +153,16 @@ def connect():
         return Supabase(url, key)
     print("No Supabase secrets set: dry run, results go to ./out")
     return Local()
+
+
+class ReadOnly:
+    """Test runs (--dry): read the live database, keep every write local (./out)."""
+
+    def __init__(self, live):
+        self.live, self.local = live, Local()
+
+    def select(self, table, params):
+        return self.live.select(table, params)
+
+    def __getattr__(self, name):            # insert, insert_new, upsert, update, delete, put_doc
+        return getattr(self.local, name)

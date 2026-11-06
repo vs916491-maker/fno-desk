@@ -75,7 +75,8 @@ def take_snapshot(db, nse_cls, symbols: list[str], now_fn, snaps: list[dict]) ->
                 break
             continue
         if f and f.get("oi_total"):
-            data[sym] = [f["oi_total"], f.get("spot") or f.get("ltp")]
+            prev = f["oi_total"] - (f.get("chg_oi_total") or 0)
+            data[sym] = [f["oi_total"], f.get("spot") or f.get("ltp"), prev if prev > 0 else None]
     if not data:
         return f"snapshot failed ({fails} errors)"
     snaps = (snaps + [{"ts": now.strftime("%Y-%m-%dT%H:%M"), "d": data}])[-config.OI_SNAP_KEEP:]
@@ -114,7 +115,7 @@ def signal_hour(snaps: list[dict], sym: str, sig_time: pd.Timestamp, fut_now: di
             break
     if not base:
         return None
-    ts, (oi0, px0) = base
+    ts, (oi0, px0) = base[0], base[1][:2]
     first_candle = start.strftime("%H:%M") == config.MARKET_OPEN
     if ts.date() < start.date() and not first_candle:
         return None                                   # a scan was missed: no clean base
@@ -267,6 +268,29 @@ def log_rows(items: list[dict], kind: str, scan_ts: str) -> list[dict]:
     return rows
 
 
+def log_bb(items: list[dict], kind: str, scan_ts: str) -> list[dict]:
+    """New rules (Price Action "pa", Price+OI "po"): key "pa|SYM|Side|time". The stop is
+    fixed when logged; the result is taken from the open of the first candle after
+    info.entry_after (stop, 1:2 target or 5 sessions; no 50 EMA exit)."""
+    rows = []
+    for x in items:
+        lv = x.get("levels") or {}
+        info = {**(x.get("info") or {}), "rules": x["rules"], "warnings": x.get("warnings") or [],
+                "setup": x.get("setup"), "state": x.get("state"), "prior": x.get("prior"), "kind": x.get("kind"),
+                "base_no": x.get("base_no"), "base": x.get("base"), "stop_from": lv.get("stop_from"),
+                "entry_after": x.get("entry_after"), "confirm": x.get("confirm"), "also": x.get("also"),
+                "oi_breakout": x.get("oi_breakout"), "oi_next": x.get("oi_next"),
+                "futures": {k: (x.get("futures") or {}).get(k) for k in ("buildup", "pchg_oi", "pchange")},
+                "scoring": x.get("scoring"), "parts": x.get("parts"), "sector": x.get("sector"),
+                "candle_pct": x.get("candle_pct"), "size_ratio": x.get("size_ratio"), "vol_ratio": x.get("vol_ratio"),
+                "entry_status": x.get("entry_status"), "reason": x.get("reason"), "lot_size": x.get("lot_size")}
+        rows.append({"key": f"{x['rules']}|{x['symbol']}|{x['side']}|{x['signal_time']}", "symbol": x["symbol"],
+                     "side": x["side"], "signal_time": x["signal_time"], "scan_ts": scan_ts, "kind": kind,
+                     "top_rank": x.get("top_rank"), "score": (x.get("scoring") or {}).get("score"),
+                     "entry": lv.get("entry"), "stop": lv.get("stop"), "target": lv.get("target"), "info": info})
+    return rows
+
+
 def write_log(db, rows: list[dict]) -> str:
     if not rows:
         return "log: nothing new"
@@ -275,6 +299,33 @@ def write_log(db, rows: list[dict]) -> str:
 
 
 # ------------------------------------------------------------------ results
+def _evaluate_bb(df: pd.DataFrame, r: dict):
+    """New rules: entry at the open of the first candle after info.entry_after, the logged
+    stop, target 1:2; stop, target or 5 sessions. Returns the values to save, "wait", or None."""
+    info = r.get("info") or {}
+    after = df[df.index > pd.Timestamp(str(info.get("entry_after") or r["signal_time"])[:16])]
+    if after.empty:
+        return "wait"
+    d = 1 if r["side"] == "Long" else -1
+    entry, stop = float(after.Open.iloc[0]), float(r["stop"])
+    risk = (entry - stop) * d
+    if risk <= 0:
+        return {"done": True, "result": "no valid stop", "entry": round(entry, 2)}
+    lv = {"stop": stop, "target": entry + d * config.BB_TARGET_R * risk}
+    j = df.index.get_loc(after.index[0]) - 1
+    out = _walk(df, None, j, d, lv, use_ema=False)
+    if not out:
+        return "wait"
+    reason, px, t = out
+    span = df.iloc[j + 1:df.index.get_loc(t) + 1]
+    fav = ((span.High.max() - entry) if d > 0 else (entry - span.Low.min())) / risk
+    adv = ((entry - span.Low.min()) if d > 0 else (span.High.max() - entry)) / risk
+    net, rm = round((px / entry - 1) * 100 * d - config.COST_PCT, 3), round((px - entry) * d / risk, 2)
+    return {"entry": round(entry, 2), "target": round(lv["target"], 2), "result": reason, "exit_price": round(px, 2),
+            "exit_time": t.strftime("%Y-%m-%dT%H:%M"), "net_pct": net, "r_mult": rm, "alt_result": reason,
+            "alt_net_pct": net, "alt_r_mult": rm, "mfe_r": round(float(fav), 2), "mae_r": round(float(adv), 2), "done": True}
+
+
 def _walk(df, e, j, d, lv, use_ema: bool):
     """Exit of a trade entered at the open of candle j+1. Returns (reason, price, time) or None."""
     entry_day = df.index[j + 1].date()
@@ -309,6 +360,14 @@ def evaluate(db, candles: dict[str, pd.DataFrame], now: datetime, completed_fn, 
         if df is None or df.empty:
             continue
         df = completed_fn(df, now)
+        if (r.get("info") or {}).get("rules") in ("pa", "po"):
+            res = _evaluate_bb(df, r)
+            if res == "wait":
+                waiting += 1
+            elif res:
+                db.update(LOG_TABLE, {"id": f"eq.{r['id']}"}, res)
+                done += 1
+            continue
         st = pd.Timestamp(str(r["signal_time"])[:16])
         if st not in df.index:
             if len(df) and df.index[0] > st:          # older than the candles we have: give up

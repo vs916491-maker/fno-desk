@@ -1,7 +1,9 @@
 """My Trades: automatic closing of open trades you logged with "I took this trade".
 
 Stock trades (hourly candles, checked by the screener job):
-    stop hit, target hit, or time exit after 5 sessions (entry day = day 1).
+    from the Price Action / Price+OI tabs (6 Nov 2026): stop hit only; you close the
+    rest by hand (the target is shown, not acted on).
+    older trades: stop hit, target hit, or time exit after 5 sessions (entry day = day 1).
     The 50 EMA close-back rule is NOT applied to your trades.
 Index futures trades (checked every 15 minutes by the snapshot job):
     stop hit or target hit on the futures price, or time exit after 5 sessions.
@@ -16,6 +18,9 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 
 from . import config
+
+
+STOP_ONLY_SOURCES = ("Price Action", "Price+OI")   # screener tabs since 6 Nov 2026
 
 
 def sessions_between(start: date, end: date) -> int:
@@ -115,6 +120,9 @@ def check_stock_trades(db, candles: dict[str, pd.DataFrame], now: datetime, pric
                           for t in df.index], index=df.index)
         after = df[(ends > entry_t) & (ends <= pd.Timestamp(now))]
         side, stop, target = tr["side"], tr.get("stop"), tr.get("target")
+        stop_only = tr.get("source") in STOP_ONLY_SOURCES
+        if stop_only:
+            target = None
         reason = exit_price = when = None
         for t, c in after.iterrows():
             if side == "Long":
@@ -130,7 +138,8 @@ def check_stock_trades(db, candles: dict[str, pd.DataFrame], now: datetime, pric
             if reason:
                 when = t.to_pydatetime()
                 break
-            if sessions_between(entry_t.date(), t.date()) >= config.EF_MAX_DAYS and t.strftime("%H:%M") >= "15:15":
+            if (not stop_only and sessions_between(entry_t.date(), t.date()) >= config.EF_MAX_DAYS
+                    and t.strftime("%H:%M") >= "15:15"):
                 reason, exit_price, when = "time exit (auto)", float(c.Close), ends[t].to_pydatetime()
                 break
         if reason:

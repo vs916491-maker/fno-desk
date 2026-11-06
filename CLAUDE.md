@@ -9,7 +9,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 ## Tabs
 | Tab | What it shows | Updates |
 |---|---|---|
-| F&O stock screener (`#/stocks`) | Hourly 50 EMA cross + futures OI build-up; Top 5 (candle clarity 60% + OI change 40% + sector boost); all ideas of the day kept by run (Run 1, Run 2 …; doc `stock_screener_day`, fresh each day); "I took this trade"; Run scanner button | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
+| F&O stock screener (`#/stocks`) | Two views (6 Nov 2026): **Price Action** (default, chart only) and **Price+OI** (chart + futures OI, "Waiting for OI" list). Hourly base breakouts by 50 EMA state (`desk/setups.py`); own Top 5 per view; all ideas of the day kept by run (doc `stock_screener_day`); "I took this trade"; Run scanner button. Old 50 EMA cross rules run in the background, logged only | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
 | F&O index analysis (`#/index`) | Index cards, warnings (squeeze, expiry), NIFTY intraday trend scale, hourly PCR (monthly + weekly), futures OI | every 15 min, 09:15–15:30 |
 | Option chain (`#/chain`) | NIFTY, SENSEX, BANKNIFTY, FINNIFTY, MIDCPNIFTY: OI, change in OI, LTP, IV, PCR, max pain, walls | every 15 min |
 | Suggested index trades (`#/swing`) | Swing only (monthly chain, up to 5 sessions), 5-factor score, futures trade by OI walls / volatility; 3:15 pm signal history | every 15 min |
@@ -20,7 +20,8 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 
 ## Main files
 - `desk/snapshot.py` – index chains (NSE v3, BSE for SENSEX), index futures, swing signals, warnings
-- `desk/screener.py` – Yahoo hourly candles, 50 EMA cross, futures OI, Top 5
+- `desk/screener.py` – Yahoo hourly candles, both screener views (`base_breakouts`), old 50 EMA cross rules (background), Top 5; `--dry` / `--at 2026-11-06T14:20` = read-only test (workflow `screener-test.yml`)
+- `desk/setups.py` – base breakout rules: EMA state, base, stop, signal-hour OI vs usual, scores
 - `desk/signals.py` – signal-hour OI (hourly OI snapshot of all F&O stocks, doc `stock_oi_snaps`), warnings, proposed score (`score_v2`, logged only), signal log + results
 - `desk/journal.py` – closes open trades; `desk/cash_journal.py` – Sector Strength cash trades
 - `desk/config.py` – **all rule thresholds in one place**
@@ -46,7 +47,15 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 - Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted). Exception (5 Nov 2026, both sites): a trade closed by hand can be edited or reopened until the next weekday 19:40 IST (`closed_at` set by a trigger, `trade_fix_until()`, RLS in `supabase/011_fix_closed_trades.sql`); trades closed by the jobs lock at once.
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).
 - My Trades totals at the top cover the current financial year only (Apr–Mar) and start fresh each 1 April; completed years show in "Year by year".
-- Stock screener: day futures build-up stays the filter; signal-hour OI and the other checks (results, F&O ban, stop < 0.4% or > 2.5%, daily trend vs 20-day average, regime light, breakout volume, small/very big candle, chop) are **warnings only**. Sector boost unchanged until the signal log has enough data. Proposed score (signal-hour OI 35, day OI 25, candle shape 25 + size 15, + sector 10) is logged, not live.
+- Stock screener rules (decided 6 Nov 2026, all numbers `BB_*` in `desk/config.py`, details at the top of `desk/setups.py`):
+  - EMA state = hourly 50 EMA slope over 20 candles: rising > +0.5%, flat ±0.5%, falling < −0.5%. Base = 7–30 candles, range ≤ 1.5× average daily range (20 sessions). Breakout = solid candle closing beyond the base and the EMA. Only base 1–2 since the EMA cross count.
+  - Long: rising/flat EMA base 1–2 held above the EMA; falling EMA: 1st breakout ignored, must hold above the EMA 7+ candles then base. Short: falling EMA base breakdown or rejection at the EMA; flat EMA base >1% below the EMA; no shorts on a rising EMA.
+  - Stop: breakout candle ≥ 2% of price → candle low/high, else base low/high (0.1% buffer); > 5% skipped. Target 1:2 shown only. Track record: stop, target or 5 sessions. My Trades from these tabs (source "Price Action"/"Price+OI"): auto-close at the stop only, otherwise by hand.
+  - Price+OI: signal-hour OI build-up ≥ 1.5× the stock's usual hourly OI change (first hour has its own usual); rising/falling EMA also needs the day's build-up; one-candle wait (OI in the next candle → entry a candle later), else logged as rejected by OI.
+  - Scores: Price Action = candle 35 (strength 14, size 11, volume 10) + base 27 (tight 16, length 11) + near EMA 14 + margin 14 + sector 10. Price+OI = candle 25 + base 20 + EMA 10 + margin 10 + signal-hour OI 15 + day OI 10 + sector 10. He wants chart weighted above OI (price usually moves first).
+  - Warnings only: results, F&O ban, stop < 0.4%, daily trend, regime, volume, candle size, chop.
+  - Signal log keys: `pa|SYM|Side|time`, `po|…` (info.rules); old rules keep the plain key. Hourly OI snapshots keep ~10 sessions (`OI_SNAP_KEEP` 75) and store yesterday's closing OI as the 3rd value.
+- Signal-hour OI for a 9:15 candle is measured from yesterday's closing OI (NSE day change), never from yesterday's last snapshot (fixed 6 Nov 2026).
 - Stock names link to TradingView (his saved layout with 50 EMA + RSI).
 - NSE/BSE endpoints are unofficial and change without notice; each run reports problems in its summary.
 
