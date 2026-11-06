@@ -489,8 +489,8 @@ async function viewStocks(app) {
   const view = (d[tab] || {});
   const ideas = view.ideas || [];
   const isPO = tab === "po";
-  const W = isPO ? { strength: 10, size: 8, volume: 7, tight: 12, length: 8, ema: 10, margin: 10, hour_oi: 15, day_oi: 10, sector: 10 }
-    : { strength: 14, size: 11, volume: 10, tight: 16, length: 11, ema: 14, margin: 14, sector: 10 };
+  const W = isPO ? { strength: 11, size: 9, tight: 12, length: 8, ema: 10, margin: 10, hour_oi: 15, day_oi: 10, sector: 15 }
+    : { strength: 15, size: 12, tight: 17, length: 12, ema: 15, margin: 14, sector: 15 };
   const early = d.early ? h("div", { class: "banner expiry" }, h("b", null, "Early scan. "),
     `No hourly candle has closed yet today (the first one closes at 10:15). These setups come from the previous session's candles, up to ${new Date(d.early.last_candle).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. New setups for today start with the 10:19 scan.`) : null;
   const source = isPO ? "Price+OI" : "Price Action";
@@ -565,8 +565,8 @@ async function viewStocks(app) {
   const intro = isPO
     ? "Price Action setups that futures OI confirms: the build-up in the trade's direction must be at least 1.5× the stock's usual hourly OI change in the breakout candle, or in the next candle (then entry moves one candle later). A rising or falling 50 EMA also needs the day's futures build-up. Your trades close only at the stop or by hand; the target is shown. Every idea is logged in Track record."
     : "Chart only. A solid hourly candle breaks out of a base (7–30 candles, range at most 1.5× the stock's daily range). Rising or flat 50 EMA: 1st or 2nd base. Falling 50 EMA: the first breakout is ignored until price holds above it. Shorts mirror this (no shorts on a rising EMA). Stop at the breakout candle (if it is 2%+ of price) or the base; skipped above 5%. Futures OI is shown but not scored. Your trades close only at the stop or by hand; the target is shown.";
-  const scoreNote = isPO ? "Candle 25 (strength 10, size 8, volume 7) + base 20 + near 50 EMA 10 + breakout margin 10 + signal-hour OI 15 + day OI 10 + sector 10"
-    : "Candle 35 (strength 14, size 11, volume 10) + base 27 + near 50 EMA 14 + breakout margin 14 + sector 10";
+  const scoreNote = isPO ? "Candle 20 (strength 11, size 9) + base 20 + near 50 EMA 10 + breakout margin 10 + signal-hour OI 15 + day OI 10 + sector 15"
+    : "Candle 27 (strength 15, size 12) + base 29 + near 50 EMA 15 + breakout margin 14 + sector 15";
   render(app,
     head(`Last scan ${when(d.ts)}, ${d.scanned} F&O stocks`),
     scanBar(d.ts),
@@ -1319,16 +1319,15 @@ function viewReadme(app) {
       ]),
       h("h3", { class: "readme-h" }, "6. Top 5 score"),
       tbl(["Part", "Price Action", "Price+OI", "How it is measured"], [
-        ["Candle strength", "14", "10", "Body 50% → 0, 80%+ → full; close in the top third → 0, top 10% → full (averaged)."],
-        ["Candle size", "11", "8", "Range vs the usual for that hour (last 10 sessions): 1× → 0, 2×+ → full."],
-        ["Volume", "10", "7", "Volume vs the usual for that hour: 1× → 0, 2×+ → full. Missing (Yahoo's 9:15 candle): half."],
-        ["Base tightness", "16", "12", "Base range vs the daily range: 1.5× → 0, 0.5× or tighter → full."],
-        ["Base length", "11", "8", "7 candles → 0, 21+ → full."],
-        ["Near the 50 EMA", "14", "10", "Breakout close vs the EMA: 2% or less → full, 6%+ → 0."],
+        ["Candle strength", "15", "11", "Body 50% → 0, 80%+ → full; close in the top third → 0, top 10% → full (averaged)."],
+        ["Candle size", "12", "9", "Range vs the usual for that hour (last 10 sessions): 1× → 0, 2×+ → full."],
+        ["Base tightness", "17", "12", "Base range vs the daily range: 1.5× → 0, 0.5× or tighter → full."],
+        ["Base length", "12", "8", "7 candles → 0, 21+ → full."],
+        ["Near the 50 EMA", "15", "10", "Breakout close vs the EMA: 2% or less → full, 6%+ → 0."],
         ["Breakout margin", "14", "10", "Close beyond the base: just beyond → 0, 1%+ → full."],
         ["Signal-hour OI", "–", "15", "1.5× usual → 5, 4×+ usual → 15."],
         ["Day OI", "–", "10", "The day's build-up in the trade's direction: 0% → 0, 8%+ → 10."],
-        ["Sector", "10", "10", "Long: sector Leading or Improving on the Sector Strength RRG. Short: Lagging or Weakening."],
+        ["Sector", "15", "15", "Long: sector Leading or Improving on the Sector Strength RRG. Short: Lagging or Weakening."],
       ]),
       h("h3", { class: "readme-h" }, "7. Warnings (never remove an idea)"),
       tbl(["Warning", "When"], [
@@ -1337,7 +1336,6 @@ function viewReadme(app) {
         ["Stop distance", "Stop closer than 0.4% from the entry (noise can hit it)."],
         ["Daily trend", "Long below / Short above the 20-day simple average of daily closes."],
         ["Market regime", "Long while Sector Strength's regime light is Red, or Short while it is Green."],
-        ["Breakout volume", "Breakout candle's volume below the usual for that hour."],
         ["Candle size", "Range below 0.6× (small) or above 2.5× (very big) the usual for that hour."],
         ["Chop", "3 or more 50 EMA crosses in the 3 sessions before the signal."],
       ]),

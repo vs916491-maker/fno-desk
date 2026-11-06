@@ -260,7 +260,8 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                 lv_r = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in lv.items()}
                 info = signals.context(df, e, j, st["side"], lv, extras.get("results", {}).get(sym), sym in banned,
                                        extras.get("regime"), today)
-                warns = [w for w in signals.warnings(st["side"], info, None, False) if "large risk" not in w]
+                warns = [w for w in signals.warnings(st["side"], info, None, False)
+                         if "large risk" not in w and not w.startswith("Breakout volume")]   # not used by the new rules
                 idea = {**base, "kind": st["kind"], "prior": st["prior"], "slope": st["slope"], "base_no": st["base_no"],
                         "base": st["base"], "candle_pct": st["candle_pct"], "size_ratio": st["size_ratio"],
                         "vol_ratio": st["vol_ratio"], "levels": lv_r, "entry_status": status,

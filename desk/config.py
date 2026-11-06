@@ -154,10 +154,11 @@ BB_OI_FULL = 4.0                  # full OI points at 4x usual
 BB_FIRST_HOUR_FACTOR = 1.65       # first hour's usual OI change vs a normal hour, until 3+ days of history
 BB_DAY_OI_FULL = 8.0              # day OI: full points at +8%
 # Scores (0-100). Price Action has no OI parts; its chart parts are scaled up.
-BB_W_PA = {"strength": 14, "size": 11, "volume": 10, "tight": 16, "length": 11, "ema": 14, "margin": 14,
-           "hour_oi": 0, "day_oi": 0, "sector": 10}
-BB_W_PO = {"strength": 10, "size": 8, "volume": 7, "tight": 12, "length": 8, "ema": 10, "margin": 10,
-           "hour_oi": 15, "day_oi": 10, "sector": 10}
+# 6 Nov 2026 (his choice): volume removed from the score (and its warning), sector raised to 15.
+BB_W_PA = {"strength": 15, "size": 12, "volume": 0, "tight": 17, "length": 12, "ema": 15, "margin": 14,
+           "hour_oi": 0, "day_oi": 0, "sector": 15}
+BB_W_PO = {"strength": 11, "size": 9, "volume": 0, "tight": 12, "length": 8, "ema": 10, "margin": 10,
+           "hour_oi": 15, "day_oi": 10, "sector": 15}
 BB_OI_MIN_POINTS = 1 / 3          # an OI surge of exactly 1.5x earns a third of the OI points
 # Flattening EMA (6 Nov 2026, ICICIBANK 23-24 Apr example): the 20-candle slope lags, so a
 # 50 EMA that has gone flat over the last 7 candles also counts, with the base on the EMA.
