@@ -473,6 +473,7 @@ function closeDialog(tr, onSaved) {
    The old 50 EMA cross rules still run in the background; they are only in Track record. */
 const SCR_TABS = [["pa", "Price Action"], ["po", "Price+OI"]];
 const REJ_LABEL = { strength: "Wick strength", tight: "First touch", length: "Stop room", ema: "Trend strength", margin: "Shakeout depth" };
+const SHK_LABEL = { strength: "Wick strength", margin: "Shakeout depth" };
 const PART_LABEL = { strength: "Candle strength", size: "Candle size", volume: "Volume", tight: "Base tightness", length: "Base length",
   ema: "Near 50 EMA", margin: "Breakout margin", hour_oi: "Signal-hour OI", day_oi: "Day OI", sector: "Sector" };
 function oiText(c, label) {
@@ -516,7 +517,8 @@ async function viewStocks(app) {
     h("div", { class: "meta" }, futText(x)),
     h("div", { class: "meta" }, oiText(x.oi_breakout, "Breakout candle"), x.oi_next ? ` · ${oiText(x.oi_next, "next candle")}` : ""),
     x.rej_detail ? h("div", { class: "meta" }, `Rejection: wick ${x.rej_detail.wick_vs_adr ?? "–"}× the daily range, flushed ${x.rej_detail.depth_vs_adr ?? "–"}× the daily range past the EMA; ${x.rej_detail.earlier_touches} earlier EMA touch${x.rej_detail.earlier_touches === 1 ? "" : "es"} in ~3 sessions; stop ${x.rej_detail.stop_vs_adr}× the daily range.`) : null,
-    h("div", { class: "parts" }, Object.keys(W).map((k) => part((x.kind === "rejection" && REJ_LABEL[k]) || PART_LABEL[k], (x.scoring[k] || 0) / W[k] * 100, `${Math.round(x.scoring[k] || 0)}/${W[k]}`))),
+    x.shk_detail ? h("div", { class: "meta" }, `Shakeout: dipped ${x.shk_detail.dip_vs_adr}× the daily range below the base (${x.shk_detail.base_lo}–${x.shk_detail.base_hi}, ${x.shk_detail.base_candles} candles) and closed back inside; wick ${x.shk_detail.wick_vs_adr}× the daily range.`) : null,
+    h("div", { class: "parts" }, Object.keys(W).map((k) => part((x.kind === "rejection" && REJ_LABEL[k]) || (x.kind === "shakeout" && SHK_LABEL[k]) || PART_LABEL[k], (x.scoring[k] || 0) / W[k] * 100, `${Math.round(x.scoring[k] || 0)}/${W[k]}`))),
     x.sector ? h("div", { class: "meta" }, `${x.sector} sector is ${x.sector_quadrant || "leading"} on the Sector Strength RRG`) : null,
     warnList(x.warnings),
     h("div", { class: "btn-row" }, h("button", { class: "btn primary small", type: "button", onclick: () => took(x) }, "I took this trade"),
@@ -1192,10 +1194,12 @@ async function viewRecord(app) {
     ["Price+OI: OI in the breakout candle", null, po.filter((r) => info(r).confirm === "breakout candle")],
     ["Price+OI: OI in the next candle", "One-candle wait; entry a candle later", po.filter((r) => info(r).confirm === "next candle")],
     ["Price+OI: rejected by OI", "Good chart, OI never confirmed or day build-up against", poRej],
-    ["Price Action: base breakouts", "Base 1 or 2, flattening EMA", pa.filter((r) => info(r).kind !== "rejection")],
+    ["Price Action: base breakouts", "Base 1 or 2, flattening EMA", pa.filter((r) => !["rejection", "shakeout"].includes(info(r).kind))],
+    ["Price Action: shakeout in the base", "Dip below the base, close back inside; entry at the next open", pa.filter((r) => info(r).kind === "shakeout")],
     ["Price Action: rejection at the 50 EMA", "Wick off a rising (Long) or falling (Short) EMA", pa.filter((r) => info(r).kind === "rejection")],
     ["Price+OI: rejection at the 50 EMA", null, po.filter((r) => info(r).kind === "rejection")],
-    ["Rejection that failed the checks", "Not shown as ideas; entry right after the rejection candle. Should do worse than the ones that passed", paRej],
+    ["Rejection that failed the checks", "Not shown as ideas; entry right after the rejection candle. Should do worse than the ones that passed", paRej.filter((r) => info(r).kind !== "shakeout")],
+    ["Shakeout that failed the checks", "Not shown as ideas", paRej.filter((r) => info(r).kind === "shakeout")],
     ["Old rules: all ideas", "50 EMA cross + day futures build-up", ideas],
     ["Old rules: Top 5", null, ideas.filter((r) => r.top_rank)],
   ];
@@ -1310,7 +1314,7 @@ function viewReadme(app) {
       h("h3", { class: "readme-h" }, "4. Entry, stop, target, exit"),
       list([
         "Entry: the next candle's open (Price+OI with OI in the next candle: one candle later).",
-        "Rejection checks (all must pass, both sides): A. the rejection candle is at least 1.5× the stock's usual candle for that hour; B. its wick is at least 0.5× the average daily range; C. the wick went at least 0.25× the daily range past the EMA (a real shakeout, not a light touch); D. the next candle closes beyond the rejection candle's close (above for a Long) without touching the stop, and entry is at the open of the candle after that. At most 2 rejection setups in each Top 5. Rejections that fail are not listed but are logged in the Track record (\"Rejection that failed the checks\").",
+        "Rejection checks (all must pass, both sides): A. the rejection candle is at least 1.5× the stock's usual candle for that hour; B. its wick is at least 0.5× the average daily range; C. the wick went at least 0.25× the daily range past the EMA (a real shakeout, not a light touch); D. the next candle closes beyond the rejection candle's close (above for a Long) without touching the stop, and entry is at the open of the candle after that. Shakeout in the base (Long on a rising or flat EMA, Short the mirror on a falling or flat EMA): a base that qualifies (base 1 or 2, held on the trade's side of the EMA), then a candle dips below the base low by at least 0.25× the daily range and closes back inside the base and above the EMA, with a lower wick of at least half the candle and at least 0.4× the daily range, close in the upper half. Entry at the next open (no wait), stop below the shakeout wick. At most 2 rejection + shakeout setups in each Top 5. Rejections that fail are not listed but are logged in the Track record (\"Rejection that failed the checks\").",
         "Stop: if the breakout candle's range is 2% of price or more, 0.1% beyond its low (high for a Short); otherwise 0.1% beyond the base low (high). Rejections: beyond the rejection candle's wick. A stop more than 5% from entry is skipped.",
         "Target: 1:2, shown only. Your trades close automatically only at the stop; otherwise you close them by hand.",
         "Track record: stop, 1:2 target or 5 sessions, whichever comes first.",
