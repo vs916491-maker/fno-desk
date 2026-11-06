@@ -164,3 +164,7 @@ BB_OI_MIN_POINTS = 1 / 3          # an OI surge of exactly 1.5x earns a third of
 BB_ROLL_BARS = 7                  # EMA change over the last 7 candles ...
 BB_ROLL_FLAT_PCT = 0.15           # ... within +-0.15%: flattening
 BB_ROLL_NEAR_PCT = 0.3            # base closes no more than 0.3% on the wrong side of the EMA
+# Base count (6 Nov 2026, his rule): only sideways bases on the trade's side of the 50 EMA
+# count, stepping in one direction since price crossed the EMA; a cross resets the count.
+BB_BASE_DRIFT = 0.5               # sideways: first-to-last close move at most 50% of the base's range
+BB_COUNT_LOOKBACK = 150           # count bases over at most the last 150 candles

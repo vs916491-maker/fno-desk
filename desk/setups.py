@@ -93,20 +93,24 @@ def _same_hour_ratio(df: pd.DataFrame, j: int, col: str) -> float | None:
     return float(now / vals.mean())
 
 
-def find_bases(H: np.ndarray, L: np.ndarray, j: int, limit: float) -> list[dict]:
+def find_bases(H: np.ndarray, L: np.ndarray, j: int, limit: float, C: np.ndarray | None = None,
+               start_min: int = 0) -> list[dict]:
     """Every window of 7-30 candles ending just before candle j with range <= limit %,
-    longest first."""
+    starting at or after start_min, longest first. With C: sideways windows only (the move
+    from the first to the last close is at most BB_BASE_DRIFT of the range)."""
     out = []
     hi, lo = -np.inf, np.inf
     for n in range(1, config.BB_BASE_MAX + 1):
         i = j - n
-        if i < 0:
+        if i < max(0, start_min):
             break
         hi, lo = max(hi, H[i]), min(lo, L[i])
         rng = (hi / lo - 1) * 100
         if rng > limit:
             break
         if n >= config.BB_BASE_MIN:
+            if C is not None and abs(C[j - 1] - C[i]) > config.BB_BASE_DRIFT * (hi - lo):
+                continue
             out.append({"n": n, "hi": float(hi), "lo": float(lo), "rng": float(rng)})
     return out[::-1]
 
@@ -132,14 +136,34 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
     if adr is None:
         return []
     limit = config.BB_BASE_ADR * adr
-    bases = find_bases(H, L, j, limit)
+    bases = find_bases(H, L, j, limit, C)
     candle_pct = rng / C[j] * 100
     size_x, vol_x = _same_hour_ratio(df, j, "range"), _same_hour_ratio(df, j, "volume")
     out = []
 
-    def base_at(i):
-        bs = find_bases(H, L, i, limit)
-        return bs[0] if bs else None
+    def side_share(n, end, long_):
+        """Share of a window's closes on the trade's side of the EMA (Long above, Short below)."""
+        return sum((C[i] >= E[i] * 0.998) if long_ else (C[i] <= E[i] * 1.002) for i in range(end - n, end)) / n
+
+    stairs = {}
+
+    def staircase(k, long_):
+        """His base count: sideways bases on the trade's side of the EMA, broken in the trade's
+        direction since price crossed the EMA at k; each new base starts after the previous
+        breakout. A cross to the other side resets it (k moves). Returns (count, last breakout)."""
+        if (k, long_) in stairs:
+            return stairs[(k, long_)]
+        count, last = 0, None
+        for i in range(max(k + 1, j - config.BB_COUNT_LOOKBACK), j):
+            start = (last + 1) if last is not None else k
+            for bb in find_bases(H, L, i, limit, C, start):
+                if side_share(bb["n"], i, long_) < config.BB_BASE_HELD:
+                    continue
+                if (C[i] > bb["hi"] and C[i] > O[i]) if long_ else (C[i] < bb["lo"] and C[i] < O[i]):
+                    count, last = count + 1, i
+                break                                   # judge the longest sideways base on the side
+        stairs[(k, long_)] = (count, last)
+        return count, last
 
     def shape(d):
         """Body and close position for a candle in direction d. A gap in the trade's
@@ -154,9 +178,6 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
             return 0.0, 0.5, o
         return abs(C[j] - o) / r, (C[j] - lo) / r, o
 
-    def broke(i, bb, long_):
-        return (C[i] > bb["hi"] and C[i] > O[i]) if long_ else (C[i] < bb["lo"] and C[i] < O[i])
-
     def judge(d, b):
         """Rules for one side and one base. Returns (setup, reject, details)."""
         long_ = d > 0
@@ -165,14 +186,10 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
             k -= 1
         run = j - k
         prior = ema_state(slope_pct(e, k - 1)) if k > 0 else state
-        used, last = 0, -9
-        for i in range(k + 1, j):
-            bb = base_at(i)
-            if bb and broke(i, bb, long_):
-                if i - last > 3:
-                    used += 1
-                last = i
-        base_no = used + 1
+        count, last = staircase(k, long_)
+        base_no = count + 1
+        if last is not None and j - b["n"] <= last:
+            return None, "No fresh base since the previous breakout", {"prior": prior, "run": run, "base_no": base_no, "held": 0.0}
         span = range(j - b["n"], j)
         if long_:
             held = sum(C[i] >= E[i] * 0.998 for i in span) / b["n"]
@@ -187,15 +204,6 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
         against = "falling" if long_ else "rising"
         roll_ok = (roll_flat and near >= config.BB_BASE_HELD and state in (("falling", "flat") if long_ else ("rising", "flat"))
                    and (state == against or prior == against or not held_ok))
-        if roll_ok:
-            used2, last2 = 0, -9
-            for i in range(max(1, j - 2 * b["n"]), j):
-                bb = base_at(i)
-                if bb and broke(i, bb, long_) and ((C[i] > E[i]) if long_ else (C[i] < E[i])):
-                    if i - last2 > 3:
-                        used2 += 1
-                    last2 = i
-            base_no = used2 + 1
         info = {"prior": prior, "run": run, "base_no": base_no, "held": held}
         if roll_ok:
             was = f" (was {against})" if (state == against or prior == against) else ""
