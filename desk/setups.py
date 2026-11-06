@@ -156,12 +156,12 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
         count, last = 0, None
         for i in range(max(k + 1, j - config.BB_COUNT_LOOKBACK), j):
             start = (last + 1) if last is not None else k
-            for bb in find_bases(H, L, i, limit, C, start):
+            for bb in find_bases(H, L, i, limit, C, start):   # longest first, as the setups do
                 if side_share(bb["n"], i, long_) < config.BB_BASE_HELD:
                     continue
                 if (C[i] > bb["hi"] and C[i] > O[i]) if long_ else (C[i] < bb["lo"] and C[i] < O[i]):
                     count, last = count + 1, i
-                break                                   # judge the longest sideways base on the side
+                    break
         stairs[(k, long_)] = (count, last)
         return count, last
 
