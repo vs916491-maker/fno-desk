@@ -104,7 +104,8 @@ def signal_hour(snaps: list[dict], sym: str, sig_time: pd.Timestamp, fut_now: di
         if oi1 and coi is not None and px_pct is not None and oi1 - coi > 0:
             oi_pct = coi / (oi1 - coi) * 100
             return {"oi_pct": _r(oi_pct), "px_pct": _r(px_pct), "buildup": buildup(px_pct, oi_pct),
-                    "since": (start - timedelta(days=1)).strftime("%Y-%m-%dT15:30"), "from_prev_day": True}
+                    "since": (start - timedelta(days=3 if start.weekday() == 0 else 1)).strftime("%Y-%m-%dT15:30"),
+                    "from_prev_day": True}
     base = None
     for s in reversed(snaps):
         ts = datetime.fromisoformat(s["ts"])

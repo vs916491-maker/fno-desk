@@ -1,0 +1,32 @@
+name: One-off - fix 9:15 signal-hour OI in signal log
+
+# Manual only. Recomputes the signal-hour OI of 9:15 signals already in signal_log
+# (see scripts/fix_915_hourly.py). Run once with write = false to see the changes.
+on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "Save the changes (false = dry run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          WRITE: ${{ github.event.inputs.write }}
+        run: |
+          if [ "$WRITE" = "true" ]; then python scripts/fix_915_hourly.py --write; else python scripts/fix_915_hourly.py; fi
