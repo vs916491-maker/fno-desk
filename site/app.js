@@ -1289,7 +1289,8 @@ function viewReadme(app) {
       h("h3", { class: "readme-h" }, "2. Base and breakout"),
       list([
         "Base: 7 to 30 candles before the breakout whose high–low range is at most 1.5× the stock's average daily range (last 20 sessions).",
-        "Breakout: a solid candle (body at least 50% of its range, close in the top third) closes above the base high and above the 50 EMA. Short: the mirror, below the base low and the EMA.",
+        "Breakout: a solid candle (body at least 50% of its range, close in the top third) closes above the base high and above the 50 EMA. Short: the mirror, below the base low and the EMA. A gap in the trade's direction counts as part of the candle (body measured from the previous close).",
+        "The longest qualifying base is used; if the longest one fails a rule, shorter bases (down to 7 candles) are tried.",
         "Base count: breakouts since price crossed the 50 EMA. Only the 1st and 2nd base count; later ones are shown as late.",
       ]),
       h("h3", { class: "readme-h" }, "3. Which setups count"),
@@ -1297,6 +1298,7 @@ function viewReadme(app) {
         ["Rising", "Base 1 or 2, with 80% of the base's closes at or above the EMA.", "None. The 1st breakdown below a rising EMA is ignored."],
         ["Flat", "Base 1 or 2, held above the EMA (80% of closes).", "A base more than 1% below the EMA (80% of closes) breaks down."],
         ["Falling", "The 1st breakout above it is ignored (selling not absorbed). Counts only after price has held above the EMA for 7+ candles and formed a base.", "A base below the EMA breaks down, or a rejection: the candle's high touches the EMA and a solid bearish candle closes back below it."],
+        ["Flattening", "After a fall, the EMA has gone flat over the last 7 candles (changed less than 0.15%) and a base sits on it (80% of closes no more than 0.3% below it): breakout above the base and the EMA.", "After a rise, the same flat EMA with a base on or just under it (80% of closes no more than 0.3% above it): breakdown below the base and the EMA. Example: ICICIBANK 24 Apr 2026, 9:15."],
       ]),
       h("h3", { class: "readme-h" }, "4. Entry, stop, target, exit"),
       list([
