@@ -1288,10 +1288,10 @@ function viewReadme(app) {
       ]),
       h("h3", { class: "readme-h" }, "2. Base and breakout"),
       list([
-        "Base: 7 to 30 candles before the breakout whose high–low range is at most 1.5× the stock's average daily range (last 20 sessions).",
+        "Base: 7 to 30 candles before the breakout whose high–low range is at most 1.5× the stock's average daily range (last 20 sessions), moving sideways: the move from its first close to its last is at most half its range (a rising or falling leg is not a base).",
         "Breakout: a solid candle (body at least 50% of its range, close in the top third) closes above the base high and above the 50 EMA. Short: the mirror, below the base low and the EMA. A gap in the trade's direction counts as part of the candle (body measured from the previous close).",
         "The longest qualifying base is used; if the longest one fails a rule, shorter bases (down to 7 candles) are tried.",
-        "Base count: breakouts since price crossed the 50 EMA. Only the 1st and 2nd base count; later ones are shown as late.",
+        "Base count: only bases on the trade's side of the 50 EMA count (above it for Longs, below it for Shorts, 80% of closes), stepping one way since price crossed the EMA; each new base starts after the previous breakout. A close on the other side of the EMA resets the count, so a zig-zag never builds one. Only the 1st and 2nd base are taken; later ones are shown as late.",
       ]),
       h("h3", { class: "readme-h" }, "3. Which setups count"),
       tbl(["50 EMA", "Long", "Short"], [
