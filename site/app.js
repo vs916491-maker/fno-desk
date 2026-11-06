@@ -1295,15 +1295,15 @@ function viewReadme(app) {
       ]),
       h("h3", { class: "readme-h" }, "3. Which setups count"),
       tbl(["50 EMA", "Long", "Short"], [
-        ["Rising", "Base 1 or 2, with 80% of the base's closes at or above the EMA.", "None. The 1st breakdown below a rising EMA is ignored."],
+        ["Rising", "Base 1 or 2, with 80% of the base's closes at or above the EMA. Or a rejection at the EMA: price had been above it, the candle's low touches or pierces it and it closes back at or above it, with a lower wick of at least half the candle and the close in the upper half (stop below the wick).", "None. The 1st breakdown below a rising EMA is ignored."],
         ["Flat", "Base 1 or 2, held above the EMA (80% of closes).", "A base more than 1% below the EMA (80% of closes) breaks down."],
-        ["Falling", "The 1st breakout above it is ignored (selling not absorbed). Counts only after price has held above the EMA for 7+ candles and formed a base.", "A base below the EMA breaks down, or a rejection: the candle's high touches the EMA and a solid bearish candle closes back below it."],
+        ["Falling", "The 1st breakout above it is ignored (selling not absorbed). Counts only after price has held above the EMA for 7+ candles and formed a base.", "A base below the EMA breaks down, or a rejection: price had been below it, the candle's high touches or pierces the EMA and it closes back at or below it, with an upper wick of at least half the candle and the close in the lower half (stop above the wick)."],
         ["Flattening", "After a fall, the EMA has gone flat over the last 7 candles (changed less than 0.15%) and a base sits on it (80% of closes no more than 0.3% below it): breakout above the base and the EMA.", "After a rise, the same flat EMA with a base on or just under it (80% of closes no more than 0.3% above it): breakdown below the base and the EMA. Example: ICICIBANK 24 Apr 2026, 9:15."],
       ]),
       h("h3", { class: "readme-h" }, "4. Entry, stop, target, exit"),
       list([
         "Entry: the next candle's open (Price+OI with OI in the next candle: one candle later).",
-        "Stop: if the breakout candle's range is 2% of price or more, 0.1% beyond its low (high for a Short); otherwise 0.1% beyond the base low (high). Rejection shorts: above the rejection candle's high. A stop more than 5% from entry is skipped.",
+        "Stop: if the breakout candle's range is 2% of price or more, 0.1% beyond its low (high for a Short); otherwise 0.1% beyond the base low (high). Rejections: beyond the rejection candle's wick. A stop more than 5% from entry is skipped.",
         "Target: 1:2, shown only. Your trades close automatically only at the stop; otherwise you close them by hand.",
         "Track record: stop, 1:2 target or 5 sessions, whichever comes first.",
       ]),
