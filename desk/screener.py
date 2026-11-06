@@ -364,6 +364,11 @@ def dry_report(doc: dict) -> str:
     out += [line(x) for x in po["ideas"]]
     out += [f"  wait {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in po["waiting"]]
     out += [f"  rej  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in po["rejected"]]
+    out += ["Score parts (Price Action Top 5):"] + [
+        f"  {x['symbol']:<11}{x['setup']:<34}" + " ".join(f"{k}={v}" for k, v in x["scoring"].items())
+        + (f" | {x['rej_detail']}" if x.get("rej_detail") else "")
+        + f" | candle {x.get('candle_pct')}% size {x.get('size_ratio')}x vol {x.get('vol_ratio')}x"
+        for x in pa["ideas"] if x.get("top_rank")]
     out += [f"Chart setups not listed: {len(pa['others'])}"] + [
         f"  {x['symbol']} {x['side']} {x['signal_time'][11:]}: {x['reason']}" for x in pa["others"][:40]]
     return "\n".join(out)
