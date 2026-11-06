@@ -418,3 +418,6 @@ details.run > summary .flag { margin-left: 6px; }
 details.run > .panel { margin-top: 4px; }
 .star { color: #e09a10; font-weight: 700; margin-right: 4px; }
 .star-note { color: #b57700; font-weight: 600; margin-left: 6px; }
+
+/* screener: Price Action / Price+OI switch next to the title */
+.head-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
