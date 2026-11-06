@@ -60,7 +60,9 @@ def take_snapshot(db, nse_cls, symbols: list[str], now_fn, snaps: list[dict]) ->
     now = now_fn()
     if snaps:
         last = datetime.fromisoformat(snaps[-1]["ts"])
-        if (now - last).total_seconds() < config.OI_SNAP_MIN_AGE_MIN * 60 and last.date() == now.date():
+        close_snap = now.strftime("%H:%M") >= "15:30" > last.strftime("%H:%M")   # always keep one after the close
+        if ((now - last).total_seconds() < config.OI_SNAP_MIN_AGE_MIN * 60 and last.date() == now.date()
+                and not close_snap):
             return f"snapshot skipped (last one at {last:%H:%M})"
     nse = nse_cls(gap=config.OI_SNAP_GAP)
     t0, data, fails = time.time(), {}, 0
@@ -286,8 +288,9 @@ def log_bb(items: list[dict], kind: str, scan_ts: str) -> list[dict]:
                 "entry_status": x.get("entry_status"), "reason": x.get("reason"), "lot_size": x.get("lot_size")}
         rows.append({"key": f"{x['rules']}|{x['symbol']}|{x['side']}|{x['signal_time']}", "symbol": x["symbol"],
                      "side": x["side"], "signal_time": x["signal_time"], "scan_ts": scan_ts, "kind": kind,
-                     "top_rank": x.get("top_rank"), "score": (x.get("scoring") or {}).get("score"),
-                     "entry": lv.get("entry"), "stop": lv.get("stop"), "target": lv.get("target"), "info": info})
+                     "top_rank": x.get("top_rank"), "rank_v2": None, "score": (x.get("scoring") or {}).get("score"),
+                     "score_v2": None, "entry": lv.get("entry"), "stop": lv.get("stop"), "target": lv.get("target"),
+                     "info": info})            # same columns as log_rows: one batch insert needs matching keys
     return rows
 
 

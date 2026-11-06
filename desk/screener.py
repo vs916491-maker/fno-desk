@@ -231,10 +231,9 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
         if len(df) < config.EF_EMA + config.BB_SLOPE_BARS + config.BB_BASE_MAX:
             continue
         e = ema(df.Close, config.EF_EMA)
-        last_day = df.index[-1].date()
+        # the last 2 completed candles, even across days: at 10:19 the previous session's
+        # 15:15 breakout still gets its one-candle OI check on today's 9:15 candle
         for j in range(len(df) - config.BB_SIGNAL_BARS, len(df)):
-            if df.index[j].date() != last_day:
-                continue
             for st in setups.detect(df, e, j):
                 t_sig = df.index[j]
                 base = {"symbol": sym, "side": st["side"], "signal_time": t_sig.strftime("%Y-%m-%dT%H:%M"),
