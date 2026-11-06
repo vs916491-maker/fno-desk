@@ -58,6 +58,8 @@ def take_snapshot(db, nse_cls, symbols: list[str], now_fn, snaps: list[dict]) ->
     """Futures OI (all expiries) and spot price of every F&O stock, saved for the next
     scans' signal-hour OI. Runs after the scan results are published."""
     now = now_fn()
+    if now.weekday() >= 5 or not ("09:15" <= now.strftime("%H:%M") <= "15:50"):
+        return "snapshot skipped (market closed)"   # after-hours readings would skew the usual hourly OI
     if snaps:
         last = datetime.fromisoformat(snaps[-1]["ts"])
         close_snap = now.strftime("%H:%M") >= "15:30" > last.strftime("%H:%M")   # always keep one after the close
