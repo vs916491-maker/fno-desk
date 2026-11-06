@@ -94,6 +94,17 @@ def buildup(px_pct: float, oi_pct: float) -> str:
 def signal_hour(snaps: list[dict], sym: str, sig_time: pd.Timestamp, fut_now: dict) -> dict | None:
     """Futures OI and price change from just after the signal candle opened until now."""
     start = pd.Timestamp(sig_time).to_pydatetime()
+    if start.strftime("%H:%M") == config.MARKET_OPEN:
+        # 9:15 candle: measure from yesterday's closing OI (NSE's day change), not from
+        # yesterday's last snapshot. The ~15:19 snapshot does not match NSE's end-of-day OI
+        # (median -1.2% to the next morning across all stocks, 6 Nov 2026), which made
+        # almost every 9:15 signal show a false OI drop.
+        oi1, coi = fut_now.get("oi_total"), fut_now.get("chg_oi_total")
+        px_pct = fut_now.get("pchange")
+        if oi1 and coi is not None and px_pct is not None and oi1 - coi > 0:
+            oi_pct = coi / (oi1 - coi) * 100
+            return {"oi_pct": _r(oi_pct), "px_pct": _r(px_pct), "buildup": buildup(px_pct, oi_pct),
+                    "since": (start - timedelta(days=1)).strftime("%Y-%m-%dT15:30"), "from_prev_day": True}
     base = None
     for s in reversed(snaps):
         ts = datetime.fromisoformat(s["ts"])
