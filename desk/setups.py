@@ -79,23 +79,6 @@ def adr_pct(df: pd.DataFrame, day) -> float | None:
     return float(((g.h - g.l) / g.c * 100).mean())
 
 
-def find_base(H: np.ndarray, L: np.ndarray, j: int, limit: float) -> dict | None:
-    """Longest window of 7-30 candles ending just before candle j with range <= limit %."""
-    best = None
-    hi, lo = -np.inf, np.inf
-    for n in range(1, config.BB_BASE_MAX + 1):
-        i = j - n
-        if i < 0:
-            break
-        hi, lo = max(hi, H[i]), min(lo, L[i])
-        rng = (hi / lo - 1) * 100
-        if rng > limit:
-            break
-        if n >= config.BB_BASE_MIN:
-            best = {"n": n, "hi": float(hi), "lo": float(lo), "rng": float(rng)}
-    return best
-
-
 def _same_hour_ratio(df: pd.DataFrame, j: int, col: str) -> float | None:
     t, d = df.index[j].time(), df.index[j].date()
     prev = df.iloc[:j]
@@ -110,9 +93,29 @@ def _same_hour_ratio(df: pd.DataFrame, j: int, col: str) -> float | None:
     return float(now / vals.mean())
 
 
+def find_bases(H: np.ndarray, L: np.ndarray, j: int, limit: float) -> list[dict]:
+    """Every window of 7-30 candles ending just before candle j with range <= limit %,
+    longest first."""
+    out = []
+    hi, lo = -np.inf, np.inf
+    for n in range(1, config.BB_BASE_MAX + 1):
+        i = j - n
+        if i < 0:
+            break
+        hi, lo = max(hi, H[i]), min(lo, L[i])
+        rng = (hi / lo - 1) * 100
+        if rng > limit:
+            break
+        if n >= config.BB_BASE_MIN:
+            out.append({"n": n, "hi": float(hi), "lo": float(lo), "rng": float(rng)})
+    return out[::-1]
+
+
 def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
     """Setups whose breakout candle is j. Each has side, setup, state, reject (None = valid),
-    stop, chart score parts (0-1) and details. Entry (next candle) is set by the caller."""
+    stop, chart score parts (0-1) and details. Entry (next candle) is set by the caller.
+    The longest base that qualifies is used; if none qualifies, the longest base broken
+    is reported with the reason."""
     O, H, L, C = (df[k].to_numpy(dtype=float) for k in ("Open", "High", "Low", "Close"))
     E = e.to_numpy(dtype=float)
     if j < config.EF_EMA + config.BB_SLOPE_BARS:
@@ -120,32 +123,43 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
     rng = H[j] - L[j]
     if rng <= 0:
         return []
-    body, pos = abs(C[j] - O[j]) / rng, (C[j] - L[j]) / rng
     s0 = slope_pct(e, j - 1)
     state = ema_state(s0)
+    rb = config.BB_ROLL_BARS
+    roll_flat = j - 1 - rb >= 0 and abs(E[j - 1] / E[j - 1 - rb] - 1) * 100 <= config.BB_ROLL_FLAT_PCT
     day = df.index[j].date()
     adr = adr_pct(df, day)
     if adr is None:
         return []
     limit = config.BB_BASE_ADR * adr
-    b = find_base(H, L, j, limit)
+    bases = find_bases(H, L, j, limit)
     candle_pct = rng / C[j] * 100
     size_x, vol_x = _same_hour_ratio(df, j, "range"), _same_hour_ratio(df, j, "volume")
     out = []
 
     def base_at(i):
-        return find_base(H, L, i, limit)
+        bs = find_bases(H, L, i, limit)
+        return bs[0] if bs else None
 
-    for d in (1, -1):
+    def shape(d):
+        """Body and close position for a candle in direction d. A gap in the trade's
+        direction counts as part of the candle: measured from the previous close."""
+        o, hi, lo, pc = O[j], H[j], L[j], C[j - 1]
+        if d > 0 and o > pc:
+            o, lo = pc, min(lo, pc)
+        elif d < 0 and o < pc:
+            o, hi = pc, max(hi, pc)
+        r = hi - lo
+        if r <= 0:
+            return 0.0, 0.5, o
+        return abs(C[j] - o) / r, (C[j] - lo) / r, o
+
+    def broke(i, bb, long_):
+        return (C[i] > bb["hi"] and C[i] > O[i]) if long_ else (C[i] < bb["lo"] and C[i] < O[i])
+
+    def judge(d, b):
+        """Rules for one side and one base. Returns (setup, reject, details)."""
         long_ = d > 0
-        solid = body >= config.EF_BODY and (pos >= config.EF_CLOSE_ZONE if long_ else pos <= 1 - config.EF_CLOSE_ZONE)
-        if not b or not solid:
-            continue
-        if long_ and not (C[j] > b["hi"] and C[j] > O[j] and C[j] > E[j]):
-            continue
-        if not long_ and not (C[j] < b["lo"] and C[j] < O[j] and C[j] < E[j]):
-            continue
-        # current run on the trade's side of the EMA, and the EMA's slope before the cross
         k = j
         while k > 0 and ((C[k - 1] > E[k - 1]) if long_ else (C[k - 1] < E[k - 1])):
             k -= 1
@@ -154,42 +168,77 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
         used, last = 0, -9
         for i in range(k + 1, j):
             bb = base_at(i)
-            if bb and ((C[i] > bb["hi"] and C[i] > O[i]) if long_ else (C[i] < bb["lo"] and C[i] < O[i])):
+            if bb and broke(i, bb, long_):
                 if i - last > 3:
                     used += 1
                 last = i
         base_no = used + 1
+        span = range(j - b["n"], j)
         if long_:
-            held = sum(C[i] >= E[i] * 0.998 for i in range(j - b["n"], j)) / b["n"]
+            held = sum(C[i] >= E[i] * 0.998 for i in span) / b["n"]
         elif state == "flat":
-            held = sum(C[i] <= E[i] * (1 - config.BB_FLAT_SHORT_GAP / 100) for i in range(j - b["n"], j)) / b["n"]
+            held = sum(C[i] <= E[i] * (1 - config.BB_FLAT_SHORT_GAP / 100) for i in span) / b["n"]
         else:
-            held = sum(C[i] <= E[i] * 1.002 for i in range(j - b["n"], j)) / b["n"]
+            held = sum(C[i] <= E[i] * 1.002 for i in span) / b["n"]
         held_ok = held >= config.BB_BASE_HELD
-        setup = reject = None
+        # flattening EMA: flat over the last 7 candles, base sitting on it
+        nr = config.BB_ROLL_NEAR_PCT / 100
+        near = sum((C[i] >= E[i] * (1 - nr)) if long_ else (C[i] <= E[i] * (1 + nr)) for i in span) / b["n"]
+        against = "falling" if long_ else "rising"
+        roll_ok = (roll_flat and near >= config.BB_BASE_HELD and state in (("falling", "flat") if long_ else ("rising", "flat"))
+                   and (state == against or prior == against or not held_ok))
+        if roll_ok:
+            used2, last2 = 0, -9
+            for i in range(max(1, j - 2 * b["n"]), j):
+                bb = base_at(i)
+                if bb and broke(i, bb, long_) and ((C[i] > E[i]) if long_ else (C[i] < E[i])):
+                    if i - last2 > 3:
+                        used2 += 1
+                    last2 = i
+            base_no = used2 + 1
+        info = {"prior": prior, "run": run, "base_no": base_no, "held": held}
+        if roll_ok:
+            was = f" (was {against})" if (state == against or prior == against) else ""
+            if base_no > config.BB_MAX_BASE_NO:
+                return None, f"Flattening EMA, base {base_no}: late", info
+            return f"Flattening EMA{was}, base {base_no}", None, info
         if long_:
             if prior == "falling" and run < config.BB_HOLD_BARS:
-                reject = "Falling 50 EMA: 1st breakout above it (selling not absorbed yet)"
-            elif not held_ok:
-                reject = "Base not held above the 50 EMA"
-            elif state == "falling":
-                setup = "Held above a falling EMA, base breakout"
-            elif base_no > config.BB_MAX_BASE_NO:
-                reject = f"{state.title()} EMA, base {base_no}: late"
-            else:
-                setup = f"{state.title()} EMA, base {base_no}"
+                return None, "Falling 50 EMA: 1st breakout above it (selling not absorbed yet)", info
+            if not held_ok:
+                return None, "Base not held above the 50 EMA", info
+            if state == "falling":
+                return "Held above a falling EMA, base breakout", None, info
         else:
             if state == "rising":
-                reject = "Rising 50 EMA: no shorts"
-            elif prior == "rising" and run < config.BB_HOLD_BARS:
-                reject = "Rising 50 EMA: 1st breakdown below it"
-            elif not held_ok:
-                reject = ("Flat EMA: base not more than 1% below the EMA" if state == "flat"
-                          else "Base not held below the 50 EMA")
-            elif base_no > config.BB_MAX_BASE_NO:
-                reject = f"{state.title()} EMA, base {base_no}: late"
-            else:
-                setup = f"{state.title()} EMA, base {base_no}"
+                return None, "Rising 50 EMA: no shorts (not flattening yet)", info
+            if prior == "rising" and run < config.BB_HOLD_BARS:
+                return None, "Rising 50 EMA: 1st breakdown below it", info
+            if not held_ok:
+                return None, ("Flat EMA: base not more than 1% below the EMA" if state == "flat"
+                              else "Base not held below the 50 EMA"), info
+        if base_no > config.BB_MAX_BASE_NO:
+            return None, f"{state.title()} EMA, base {base_no}: late", info
+        return f"{state.title()} EMA, base {base_no}", None, info
+
+    for d in (1, -1):
+        long_ = d > 0
+        body, pos, o_eff = shape(d)
+        solid = body >= config.EF_BODY and (pos >= config.EF_CLOSE_ZONE if long_ else pos <= 1 - config.EF_CLOSE_ZONE)
+        if not solid or not ((C[j] > o_eff and C[j] > E[j]) if long_ else (C[j] < o_eff and C[j] < E[j])):
+            continue
+        broken = [b for b in bases if (C[j] > b["hi"] if long_ else C[j] < b["lo"])]
+        if not broken:
+            continue
+        pick = None
+        for b in broken:                               # longest qualifying base first
+            setup, reject, info = judge(d, b)
+            if setup:
+                pick = (b, setup, None, info)
+                break
+            if pick is None:
+                pick = (b, None, reject, info)         # longest base's reason, if none qualifies
+        b, setup, reject, info = pick
         big = candle_pct >= config.BB_BIG_CANDLE_PCT
         ext = (L[j] if big else b["lo"]) if long_ else (H[j] if big else b["hi"])
         stop = float(ext * (1 - config.BB_STOP_BUFFER) if long_ else ext * (1 + config.BB_STOP_BUFFER))
@@ -200,18 +249,20 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                  "tight": 1 - lin(b["rng"] / adr, 0.5, 1.5), "length": lin(b["n"], 7, 21),
                  "ema": 1 - lin(abs(C[j] / E[j] - 1) * 100, 2, 6), "margin": lin(beyond, 0, 1)}
         out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j, "setup": setup, "reject": reject,
-                    "kind": "base", "state": state, "prior": prior, "slope": _r(s0), "base_no": base_no, "run": run,
+                    "kind": "base", "state": state, "prior": info["prior"], "slope": _r(s0), "base_no": info["base_no"],
+                    "run": info["run"],
                     "base": {"n": b["n"], "hi": _r(b["hi"]), "lo": _r(b["lo"]), "range_pct": _r(b["rng"]),
-                             "adr_pct": _r(adr), "held": _r(held)},
+                             "adr_pct": _r(adr), "held": _r(info["held"])},
                     "stop": stop, "stop_from": "breakout candle" if big else "base",
                     "level": b["hi"] if long_ else b["lo"], "candle_pct": _r(candle_pct),
                     "size_ratio": _r(size_x), "vol_ratio": _r(vol_x), "parts": parts,
                     "close": float(C[j]), "ema": float(E[j])})
 
     # Short: rejection at a falling 50 EMA (no base needed)
+    body, pos, o_eff = shape(-1)
     solid_bear = body >= config.EF_BODY and pos <= 1 - config.EF_CLOSE_ZONE
     if (state == "falling" and solid_bear and H[j] >= E[j] * (1 - config.BB_TOUCH_PCT / 100)
-            and C[j] < E[j] and C[j] < O[j] and not any(x["side"] == "Short" for x in out)):
+            and C[j] < E[j] and C[j] < o_eff and not any(x["side"] == "Short" for x in out)):
         stop = float(H[j] * (1 + config.BB_STOP_BUFFER))
         parts = {"strength": (lin(body, 0.5, 0.8) + lin(1 - pos, 2 / 3, 0.9)) / 2,
                  "size": 0.5 if size_x is None else lin(size_x, 1, 2),

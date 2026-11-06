@@ -159,3 +159,8 @@ BB_W_PA = {"strength": 14, "size": 11, "volume": 10, "tight": 16, "length": 11, 
 BB_W_PO = {"strength": 10, "size": 8, "volume": 7, "tight": 12, "length": 8, "ema": 10, "margin": 10,
            "hour_oi": 15, "day_oi": 10, "sector": 10}
 BB_OI_MIN_POINTS = 1 / 3          # an OI surge of exactly 1.5x earns a third of the OI points
+# Flattening EMA (6 Nov 2026, ICICIBANK 23-24 Apr example): the 20-candle slope lags, so a
+# 50 EMA that has gone flat over the last 7 candles also counts, with the base on the EMA.
+BB_ROLL_BARS = 7                  # EMA change over the last 7 candles ...
+BB_ROLL_FLAT_PCT = 0.15           # ... within +-0.15%: flattening
+BB_ROLL_NEAR_PCT = 0.3            # base closes no more than 0.3% on the wrong side of the EMA
