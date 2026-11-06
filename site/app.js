@@ -472,7 +472,7 @@ function closeDialog(tr, onSaved) {
 /* Two views (6 Nov 2026): Price Action (chart only) and Price+OI (chart + futures OI).
    The old 50 EMA cross rules still run in the background; they are only in Track record. */
 const SCR_TABS = [["pa", "Price Action"], ["po", "Price+OI"]];
-const REJ_LABEL = { tight: "First touch", length: "Stop room", ema: "Trend strength", margin: "Reclaim" };
+const REJ_LABEL = { strength: "Wick strength", tight: "First touch", length: "Stop room", ema: "Trend strength", margin: "Shakeout depth" };
 const PART_LABEL = { strength: "Candle strength", size: "Candle size", volume: "Volume", tight: "Base tightness", length: "Base length",
   ema: "Near 50 EMA", margin: "Breakout margin", hour_oi: "Signal-hour OI", day_oi: "Day OI", sector: "Sector" };
 function oiText(c, label) {
@@ -515,7 +515,7 @@ async function viewStocks(app) {
       `Breakout candle ${pct(x.candle_pct, 1, false)}; stop ${pct(x.levels.risk_pct, 1, false)} away.`),
     h("div", { class: "meta" }, futText(x)),
     h("div", { class: "meta" }, oiText(x.oi_breakout, "Breakout candle"), x.oi_next ? ` · ${oiText(x.oi_next, "next candle")}` : ""),
-    x.rej_detail ? h("div", { class: "meta" }, `Rejection: ${x.rej_detail.earlier_touches} earlier EMA touch${x.rej_detail.earlier_touches === 1 ? "" : "es"} in ~3 sessions; stop ${x.rej_detail.stop_vs_adr}× the daily range; close ${pct(x.rej_detail.reclaim_pct, 2, false)} beyond the EMA.`) : null,
+    x.rej_detail ? h("div", { class: "meta" }, `Rejection: wick ${x.rej_detail.wick_vs_adr ?? "–"}× the daily range, flushed ${x.rej_detail.depth_vs_adr ?? "–"}× the daily range past the EMA; ${x.rej_detail.earlier_touches} earlier EMA touch${x.rej_detail.earlier_touches === 1 ? "" : "es"} in ~3 sessions; stop ${x.rej_detail.stop_vs_adr}× the daily range.`) : null,
     h("div", { class: "parts" }, Object.keys(W).map((k) => part((x.kind === "rejection" && REJ_LABEL[k]) || PART_LABEL[k], (x.scoring[k] || 0) / W[k] * 100, `${Math.round(x.scoring[k] || 0)}/${W[k]}`))),
     x.sector ? h("div", { class: "meta" }, `${x.sector} sector is ${x.sector_quadrant || "leading"} on the Sector Strength RRG`) : null,
     warnList(x.warnings),
@@ -1330,7 +1330,7 @@ function viewReadme(app) {
         ["Breakout margin", "14", "10", "Close beyond the base: just beyond → 0, 1%+ → full."],
         ["Signal-hour OI", "–", "15", "1.5× usual → 5, 4×+ usual → 15."],
         ["Day OI", "–", "10", "The day's build-up in the trade's direction: 0% → 0, 8%+ → 10."],
-        ["Rejection setups", "same slots", "same slots", "No base, so four slots measure the rejection instead: base tightness → first touch (no earlier EMA touch in ~3 sessions = full, 3+ = 0); base length → stop room (stop 0.25× the daily range = 0, 0.6×+ = full); near 50 EMA → trend strength (EMA slope 0.5% = 0, 2%+ = full over 20 candles); breakout margin → reclaim (close back beyond the EMA: 0% = 0, 0.5%+ = full)."],
+        ["Rejection setups", "same slots", "same slots", "No base, so the slots measure the rejection instead: candle strength → wick strength (half wick size vs the daily range: 0.3× = 0, 1×+ = full; half close position); base tightness → first touch (no earlier EMA touch in ~3 sessions = full, 3+ = 0); base length → stop room (stop 0.25× the daily range = 0, 0.6×+ = full); near 50 EMA → trend strength (EMA slope 0.5% = 0, 2%+ = full over 20 candles); breakout margin → shakeout depth (how far the wick went past the EMA: 0 = 0, 0.5× the daily range+ = full)."],
         ["Sector", "10", "10", "Long: sector Leading or Improving on the Sector Strength RRG. Short: Lagging or Weakening."],
       ]),
       h("h3", { class: "readme-h" }, "7. Warnings (never remove an idea)"),
