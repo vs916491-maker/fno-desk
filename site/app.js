@@ -1102,6 +1102,7 @@ async function viewRecord(app) {
   const ideas = oldRows.filter((r) => r.kind === "idea"), rejected = oldRows.filter((r) => r.kind === "rejected");
   const pa = all.filter((r) => rulesOf(r) === "pa" && r.kind === "idea");
   const po = all.filter((r) => rulesOf(r) === "po" && r.kind === "idea"), poRej = all.filter((r) => rulesOf(r) === "po" && r.kind === "rejected");
+  const paRej = all.filter((r) => rulesOf(r) === "pa" && r.kind === "rejected");   // rejections that failed the checks
   const nb = pa.concat(po);
 
   const agg = (rows) => {
@@ -1194,6 +1195,7 @@ async function viewRecord(app) {
     ["Price Action: base breakouts", "Base 1 or 2, flattening EMA", pa.filter((r) => info(r).kind !== "rejection")],
     ["Price Action: rejection at the 50 EMA", "Wick off a rising (Long) or falling (Short) EMA", pa.filter((r) => info(r).kind === "rejection")],
     ["Price+OI: rejection at the 50 EMA", null, po.filter((r) => info(r).kind === "rejection")],
+    ["Rejection that failed the checks", "Not shown as ideas; entry right after the rejection candle. Should do worse than the ones that passed", paRej],
     ["Old rules: all ideas", "50 EMA cross + day futures build-up", ideas],
     ["Old rules: Top 5", null, ideas.filter((r) => r.top_rank)],
   ];
@@ -1238,7 +1240,7 @@ async function viewRecord(app) {
         h("td", { class: "l name" }, r.symbol, chartLink(r.symbol)),
         h("td", { class: "l" }, sideTag(r.side)),
         h("td", { class: "l", title: info(r).setup || "" }, RULE_NAME[rulesOf(r)]),
-        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "old" ? "Rejected (day OI)" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
+        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "old" ? "Rejected (day OI)" : rulesOf(r) === "pa" ? "Failed checks" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
         h("td", null, isNum(+r.score) && r.score != null ? Math.round(r.score) : "–"),
         h("td", null, r.rank_v2 ? `#${r.rank_v2}` : "–"),
         h("td", { title: hr ? hourText(hr) : "" }, hr ? `${hr.buildup.replace(" build-up", "")} ${pct(hr.oi_pct, 1)}` : "–"),
@@ -1300,7 +1302,7 @@ function viewReadme(app) {
       ]),
       h("h3", { class: "readme-h" }, "3. Which setups count"),
       tbl(["50 EMA", "Long", "Short"], [
-        ["Rising", "Base 1 or 2, with 80% of the base's closes at or above the EMA. Or a rejection at the EMA: price had been above it, the candle's low touches or pierces it and it closes back at or above it, with a lower wick of at least half the candle and the close in the upper half (stop below the wick).", "None. The 1st breakdown below a rising EMA is ignored."],
+        ["Rising", "Base 1 or 2, with 80% of the base's closes at or above the EMA. Or a rejection at the EMA: price had been above it, the candle's low touches or pierces it and it closes back at or above it, with a lower wick of at least half the candle and the close in the upper half (stop below the wick). It must also pass the rejection checks below.", "None. The 1st breakdown below a rising EMA is ignored."],
         ["Flat", "Base 1 or 2, held above the EMA (80% of closes).", "A base more than 1% below the EMA (80% of closes) breaks down."],
         ["Falling", "The 1st breakout above it is ignored (selling not absorbed). Counts only after price has held above the EMA for 7+ candles and formed a base.", "A base below the EMA breaks down, or a rejection: price had been below it, the candle's high touches or pierces the EMA and it closes back at or below it, with an upper wick of at least half the candle and the close in the lower half (stop above the wick)."],
         ["Flattening", "After a fall, the EMA has gone flat over the last 7 candles (changed less than 0.15%) and a base sits on it (80% of closes no more than 0.3% below it): breakout above the base and the EMA.", "After a rise, the same flat EMA with a base on or just under it (80% of closes no more than 0.3% above it): breakdown below the base and the EMA. Example: ICICIBANK 24 Apr 2026, 9:15."],
@@ -1308,6 +1310,7 @@ function viewReadme(app) {
       h("h3", { class: "readme-h" }, "4. Entry, stop, target, exit"),
       list([
         "Entry: the next candle's open (Price+OI with OI in the next candle: one candle later).",
+        "Rejection checks (all must pass, both sides): A. the rejection candle is at least 1.5× the stock's usual candle for that hour; B. its wick is at least 0.5× the average daily range; C. the wick went at least 0.25× the daily range past the EMA (a real shakeout, not a light touch); D. the next candle closes beyond the rejection candle's close (above for a Long) without touching the stop, and entry is at the open of the candle after that. At most 2 rejection setups in each Top 5. Rejections that fail are not listed but are logged in the Track record (\"Rejection that failed the checks\").",
         "Stop: if the breakout candle's range is 2% of price or more, 0.1% beyond its low (high for a Short); otherwise 0.1% beyond the base low (high). Rejections: beyond the rejection candle's wick. A stop more than 5% from entry is skipped.",
         "Target: 1:2, shown only. Your trades close automatically only at the stop; otherwise you close them by hand.",
         "Track record: stop, 1:2 target or 5 sessions, whichever comes first.",
