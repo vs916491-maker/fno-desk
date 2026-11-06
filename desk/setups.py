@@ -373,7 +373,7 @@ def usual_oi(snaps: list[dict], sym: str, before: datetime, first_hour: bool) ->
             first.append(abs(v[0] / v[2] - 1) * 100)
     if len(intra) < 4:
         return None
-    u = float(np.mean(intra))
+    u = max(float(np.mean(intra)), config.HOUR_FLAT_PCT)   # floor: a near-zero usual made 600x "surges"
     if not first_hour:
         return u
     return float(np.mean(first)) if len(first) >= 3 else u * config.BB_FIRST_HOUR_FACTOR
