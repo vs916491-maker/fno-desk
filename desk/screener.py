@@ -194,7 +194,7 @@ def save_day_run(db, doc: dict) -> str:
 
 
 # ------------------------------------------------------------------ base breakout rules (two tabs)
-RULES_PA, RULES_PO = "pa", "po"
+RULES_PA, RULES_PO, RULES_B3 = "pa", "po", "pb3"   # pb3 = base 3, Track record only
 TAB_NAME = {RULES_PA: "Price Action", RULES_PO: "Price+OI"}
 
 
@@ -224,6 +224,7 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                    banned: set, lots: dict, today) -> dict:
     """Price Action and Price+OI tabs (desk/setups.py)."""
     pa, po, waiting, po_rej, chart_rej, rej_fail = [], [], [], [], [], []
+    late_ok, late_no = [], []          # base 3 (Track record only): passed / failed the conditions
     for sym, full in candles.items():
         if full.empty:
             continue
@@ -241,6 +242,8 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                 if st["reject"]:
                     chart_rej.append({**base, "setup": None, "reason": st["reject"]})
                     continue
+                if st.get("late") and st["kind"] != "base":
+                    continue                              # base-3 shakeouts are not tracked
                 d = st["dir"]
                 k_in = j                                  # entry at the open of the candle after k_in
                 if st["kind"] == "shakeout" and not config.BB_SHK_CONFIRM:
@@ -327,6 +330,18 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
                                       setups.usual_oi(snaps, sym, t_sig.to_pydatetime(), t_sig.strftime("%H:%M") == setups.OPEN),
                                       px_move, d)
                 idea["oi_breakout"] = chk
+                if st.get("late"):
+                    # base 3: logged for the Track record only, never shown on the screener or in a Top 5
+                    fails = setups.late_fails(st, bool(sec))
+                    sc = setups.score(st["parts"], config.BB_W_PA, sector=bool(sec))
+                    if fails:
+                        why = "Base 3 conditions failed: " + "; ".join(fails)
+                        late_no.append({**idea, "rules": RULES_B3, "scoring": sc, "reason": why})
+                    else:
+                        why = "Base 3: tracked in Track record only (passed all conditions)"
+                        late_ok.append({**idea, "rules": RULES_B3, "scoring": sc})
+                    chart_rej.append({**base, "setup": None, "reason": why})
+                    continue
                 # ---- Price Action: chart only
                 sc = setups.score(st["parts"], config.BB_W_PA, sector=bool(sec))
                 pa.append({**idea, "rules": RULES_PA, "scoring": sc})
@@ -397,7 +412,7 @@ def base_breakouts(candles: dict, now: datetime, fut_of, snaps: list, sectors: d
     for x in po:
         x["also"] = (x["symbol"], x["side"]) in pa_keys
     return {"pa": rank(pa), "po": rank(po), "waiting": waiting, "po_rejected": po_rej, "chart_rejected": chart_rej,
-            "rej_failed": rej_fail}
+            "rej_failed": rej_fail, "late_ok": late_ok, "late_no": late_no}
 
 
 def dry_report(doc: dict) -> str:
@@ -625,7 +640,8 @@ def main() -> int:
     try:
         bb = base_breakouts(candles, now, fut_of, snaps, sectors, extras, banned, lots, today)
     except Exception as exc:  # noqa: BLE001
-        bb = {"pa": [], "po": [], "waiting": [], "po_rejected": [], "chart_rejected": [], "rej_failed": []}
+        bb = {"pa": [], "po": [], "waiting": [], "po_rejected": [], "chart_rejected": [], "rej_failed": [],
+              "late_ok": [], "late_no": []}
         problems.append(f"base breakout rules failed: {exc}"[:240])
         traceback.print_exc()
 
@@ -666,8 +682,8 @@ def main() -> int:
     try:
         # 7 Nov 2026: the Track record follows the current rules only (Price Action, Price+OI).
         # The old 50 EMA cross ideas are no longer written to the signal log.
-        after.append(signals.write_log(db, signals.log_bb(bb["pa"] + bb["po"], "idea", doc["ts"]) +
-                                       signals.log_bb(bb["po_rejected"] + bb["rej_failed"], "rejected", doc["ts"])))
+        after.append(signals.write_log(db, signals.log_bb(bb["pa"] + bb["po"] + bb["late_ok"], "idea", doc["ts"]) +
+                                       signals.log_bb(bb["po_rejected"] + bb["rej_failed"] + bb["late_no"], "rejected", doc["ts"])))
     except Exception as exc:  # noqa: BLE001
         after.append(f"signal log not written: {exc}"[:220] + (" (run supabase/010_signal_log.sql)" if "signal_log" in str(exc) else ""))
     try:

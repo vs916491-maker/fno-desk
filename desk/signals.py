@@ -374,7 +374,7 @@ def evaluate(db, candles: dict[str, pd.DataFrame], now: datetime, completed_fn, 
         if df is None or df.empty:
             continue
         df = completed_fn(df, now)
-        if (r.get("info") or {}).get("rules") in ("pa", "po"):
+        if (r.get("info") or {}).get("rules") in ("pa", "po", "pb3"):
             res = _evaluate_bb(df, r)
             if res == "wait":
                 waiting += 1

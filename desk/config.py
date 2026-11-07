@@ -183,3 +183,12 @@ BB_REJ_MAX_TOP5 = 2               # at most 2 rejection + shakeout setups in eac
 BB_SHK_DIP_ADR = 0.25             # low at least 0.25x the daily range below the base low (Short: high above)
 BB_SHK_WICK_ADR = 0.4             # wick at least 0.4x the daily range
 BB_SHK_CONFIRM = False            # True = wait for the next candle like rejections (entry = base breakout's, no gain)
+# Base 3 (7 Nov 2026, his JSWENERGY example): the 3rd base after the EMA cross is not taken live
+# (BB_MAX_BASE_NO), but it is logged for the Track record ("pb3") with the Price Action score.
+# Setups that pass all conditions are logged as ideas, the others as rejected (to see if the
+# conditions matter). Not shown on the screener and not in any Top 5 until the record supports it.
+BB_LATE_LOG = True                # log base 3 in the Track record
+BB_LATE_BASE_NO = 3               # exactly the 3rd base (4th and later stay "late", not logged)
+BB_LATE_TIGHT_ADR = 0.8           # tight base: its range at most 0.8x the average daily range (live bases allow 1.5x)
+BB_LATE_VOL = 1.0                 # breakout candle's volume at least the usual for that hour
+BB_LATE_EMA_PCT = 5.0             # close no more than 5% away from the 50 EMA (needs the sector boost too)

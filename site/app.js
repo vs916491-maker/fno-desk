@@ -1092,13 +1092,16 @@ async function viewRecord(app) {
   // "po" Price+OI. Exits: stop, 1:2 target or 5 sessions. A candle that reaches both the stop and
   // the target is "unclear" and left out of every average. Old 50 EMA cross rows are not shown.
   const rulesOf = (r) => (r.info && r.info.rules) || "old";
-  const all = (await loadSignals()).filter((r) => ["pa", "po"].includes(rulesOf(r)));
+  const rows = await loadSignals();
+  const all = rows.filter((r) => ["pa", "po"].includes(rulesOf(r)));       // the live rules
+  const b3 = rows.filter((r) => rulesOf(r) === "pb3");                       // base 3: logged only (7 Nov 2026)
+  const shown = rows.filter((r) => ["pa", "po", "pb3"].includes(rulesOf(r)));
   const res = (r) => r.result;
   const net = (r) => +r.net_pct;
   const rr = (r) => +r.r_mult;
   const finished = (r) => res(r) && !["no data", "no valid stop", "unclear"].includes(res(r));
   const info = (r) => r.info || {};
-  const RULE_NAME = { pa: "Price Action", po: "Price+OI" };
+  const RULE_NAME = { pa: "Price Action", po: "Price+OI", pb3: "Base 3 (log only)" };
   const pa = all.filter((r) => rulesOf(r) === "pa" && r.kind === "idea");
   const po = all.filter((r) => rulesOf(r) === "po" && r.kind === "idea");
   const poRej = all.filter((r) => rulesOf(r) === "po" && r.kind === "rejected");
@@ -1174,12 +1177,21 @@ async function viewRecord(app) {
   const paDetail = detail(pa).concat([
     ["Also qualified on Price+OI", null, pa.filter((r) => info(r).also)],
     ["Price Action only", null, pa.filter((r) => !info(r).also)]]);
+  const b3Ok = b3.filter((r) => r.kind === "idea"), b3No = b3.filter((r) => r.kind === "rejected");
+  const b3Sets = [
+    ["Base 3: passed all conditions", "Tight base, volume at or above usual, sector boost, within 5% of the 50 EMA", b3Ok],
+    ["Base 3: failed a condition", "Same entry, stop and exits; shows whether the conditions matter", b3No],
+    ["Base 3: all", null, b3],
+    ["Base 3 passed: Longs", null, b3Ok.filter((r) => r.side === "Long")],
+    ["Base 3 passed: Shorts", null, b3Ok.filter((r) => r.side === "Short")],
+    ["Base 1–2 breakouts (live rules)", "For comparison", pa.filter(isBase)],
+  ];
   const aPA = agg(pa), aPO = agg(po);
-  const unclearN = all.filter((r) => res(r) === "unclear").length;
-  const openN = all.filter((r) => !res(r) && !r.done).length;
-  const first = all.length ? all[all.length - 1].signal_time : null;
+  const unclearN = shown.filter((r) => res(r) === "unclear").length;
+  const openN = shown.filter((r) => !res(r) && !r.done).length;
+  const first = shown.length ? shown[shown.length - 1].signal_time : null;
   const stats = h("div", { class: "stats" },
-    stat("Signals logged", all.length, `${pa.length} Price Action, ${po.length} Price+OI ideas${first ? ` · since ${dayLabel(first)}` : ""}`),
+    stat("Signals logged", shown.length, `${pa.length} Price Action, ${po.length} Price+OI ideas, ${b3.length} Base 3${first ? ` · since ${dayLabel(first)}` : ""}`),
     stat("Still running", openN, "Not finished yet"),
     stat("Price Action", rFmt(aPA.r), `${aPA.n} finished · win ${isNum(aPA.win) ? Math.round(aPA.win) + "%" : "–"}`, sign(aPA.r)),
     stat("Price+OI", rFmt(aPO.r), `${aPO.n} finished · win ${isNum(aPO.win) ? Math.round(aPO.win) + "%" : "–"}`, sign(aPO.r)),
@@ -1194,14 +1206,14 @@ async function viewRecord(app) {
   const recent = h("table", null,
     h("thead", null, h("tr", null, ["Signal", "Stock", "Side", "Rules", "List", "Score", "Signal hour", "Warnings", "Result", "Net %", "R", "Best R"].map((c, i) =>
       h("th", { class: i < 5 || i === 8 ? "l" : null }, c)))),
-    h("tbody", null, all.slice(0, 60).map((r) => {
+    h("tbody", null, shown.slice(0, 60).map((r) => {
       const hr = info(r).hourly, w = info(r).warnings || [];
       return h("tr", { style: "cursor:default" },
         h("td", { class: "l" }, when(r.signal_time)),
         h("td", { class: "l name" }, r.symbol, chartLink(r.symbol)),
         h("td", { class: "l" }, sideTag(r.side)),
         h("td", { class: "l", title: info(r).setup || "" }, RULE_NAME[rulesOf(r)]),
-        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "pa" ? "Failed checks" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
+        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "pa" ? "Failed checks" : rulesOf(r) === "pb3" ? "Failed conditions" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
         h("td", null, isNum(+r.score) && r.score != null ? Math.round(r.score) : "–"),
         h("td", { title: hr ? hourText(hr) : "" }, hr ? `${hr.buildup.replace(" build-up", "")} ${pct(hr.oi_pct, 1)}` : "–"),
         h("td", null, w.length ? h("span", { class: "warn-count", title: w.join("\n") }, w.length) : "–"),
@@ -1213,13 +1225,14 @@ async function viewRecord(app) {
 
   render(app,
     pageHead("Track record", LIVE ? "Every Price Action and Price+OI signal, logged automatically" : "Preview: sample data"),
-    h("p", { class: "intro" }, "Each idea is saved the first time a scan lists it, with its setup, score parts and warnings. Price+OI also saves setups that futures OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks. Later scans fill in what happened from the entry candle's open: the trade exits at the stop, at the 1:2 target, or at the close of the 5th session. If one candle reaches both the stop and the target, the order is unknown, so the signal is marked Unclear and left out of the averages. R = result ÷ the risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = the trade was at least 1R in profit at some point. Greyed rows have fewer than 20 finished signals: too few to judge."),
-    all.length ? stats : h("p", { class: "empty" }, "No signals logged yet. New signals appear with the next stock scan."),
+    h("p", { class: "intro" }, "Each idea is saved the first time a scan lists it, with its setup, score parts and warnings. Price+OI also saves setups that futures OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks. Later scans fill in what happened from the entry candle's open: the trade exits at the stop, at the 1:2 target, or at the close of the 5th session. If one candle reaches both the stop and the target, the order is unknown, so the signal is marked Unclear and left out of the averages. R = result ÷ the risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = the trade was at least 1R in profit at some point. Greyed rows have fewer than 20 finished signals: too few to judge. Base 3 (the third base after the EMA cross) is logged here only, for testing; it is not on the screener."),
+    shown.length ? stats : h("p", { class: "empty" }, "No signals logged yet. New signals appear with the next stock scan."),
     all.length ? groupTable("Price Action", "Chart only. Stop, 1:2 target or 5 sessions", paSets) : null,
     all.length ? groupTable("Price+OI", "Chart + futures OI. Stop, 1:2 target or 5 sessions", poSets) : null,
     pa.length ? groupTable("Price Action details", "Which kind of setup works", paDetail) : null,
     po.length ? groupTable("Price+OI details", "Which kind of setup works", detail(po)) : null,
-    all.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Latest signals"), h("p", null, "Newest first, up to 60")),
+    b3.length ? groupTable("Base 3 (logged only, not on the screener)", "3rd base after the EMA cross, Price Action score, same entry and exits. Shown live only if these results hold up", b3Sets) : null,
+    shown.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Latest signals"), h("p", null, "Newest first, up to 60")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, recent))) : null);
 }
 
@@ -1312,6 +1325,7 @@ function viewReadme(app) {
       list([
         "Every idea from both tabs is saved the first time a scan lists it, with its setup, score parts and warnings; Price+OI also saves setups that OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks.",
         "Later scans fill in the result from the entry candle's open: the stop, the 1:2 target, or the close of the 5th session, whichever comes first. If one candle reaches both the stop and the target, the order is unknown: the signal is marked Unclear and left out of win rate, R and profit factor.",
+        "Base 3 (logged only, 7 Nov 2026): the third base after the EMA cross is not on the screener, but it is saved with the Price Action score and judged here. Passed = tight base (range at most 0.8× the average daily range), breakout volume at or above the usual for that hour, the sector boost on, and the close within 5% of the 50 EMA. Setups that miss a condition are saved too, to see whether the conditions matter. Shown on the screener only if the results hold up.",
         "R = result ÷ risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
       ])),
 

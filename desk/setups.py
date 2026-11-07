@@ -54,6 +54,35 @@ def lin(x: float | None, a: float, b: float) -> float:
     return float(max(0.0, min(1.0, (x - a) / (b - a))))
 
 
+def _late_logged(base_no: int) -> bool:
+    """Base 3 passes the base-count rule so the screener can log it (Track record only)."""
+    return bool(config.BB_LATE_LOG and base_no == config.BB_LATE_BASE_NO)
+
+
+def late_fails(st: dict, sector: bool) -> list[str]:
+    """Conditions for a base-3 setup (tight base, volume at or above usual, sector boost,
+    close within BB_LATE_EMA_PCT of the 50 EMA). Empty list = all pass."""
+    fails = []
+    b = st.get("base") or {}
+    if b.get("range_pct") is not None and b.get("adr_pct"):
+        tight = b["range_pct"] / b["adr_pct"]
+        if tight > config.BB_LATE_TIGHT_ADR:
+            fails.append(f"base not tight: {tight:.2f}x the daily range (needs {config.BB_LATE_TIGHT_ADR}x or less)")
+    else:
+        fails.append("base tightness unknown")
+    v = st.get("vol_ratio")
+    if v is None:
+        fails.append("breakout volume unknown")
+    elif v < config.BB_LATE_VOL:
+        fails.append(f"breakout volume {v:.1f}x the usual (needs {config.BB_LATE_VOL}x)")
+    if not sector:
+        fails.append("no sector boost")
+    dist = abs(st["close"] / st["ema"] - 1) * 100
+    if dist > config.BB_LATE_EMA_PCT:
+        fails.append(f"{dist:.1f}% from the 50 EMA (max {config.BB_LATE_EMA_PCT:g}%)")
+    return fails
+
+
 def slope_pct(e: pd.Series, i: int) -> float | None:
     n = config.BB_SLOPE_BARS
     if i < n:
@@ -207,7 +236,7 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
         info = {"prior": prior, "run": run, "base_no": base_no, "held": held}
         if roll_ok:
             was = f" (was {against})" if (state == against or prior == against) else ""
-            if base_no > config.BB_MAX_BASE_NO:
+            if base_no > config.BB_MAX_BASE_NO and not _late_logged(base_no):
                 return None, f"Flattening EMA, base {base_no}: late", info
             return f"Flattening EMA{was}, base {base_no}", None, info
         if long_:
@@ -225,7 +254,7 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
             if not held_ok:
                 return None, ("Flat EMA: base not more than 1% below the EMA" if state == "flat"
                               else "Base not held below the 50 EMA"), info
-        if base_no > config.BB_MAX_BASE_NO:
+        if base_no > config.BB_MAX_BASE_NO and not _late_logged(base_no):
             return None, f"{state.title()} EMA, base {base_no}: late", info
         return f"{state.title()} EMA, base {base_no}", None, info
 
@@ -258,7 +287,7 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                  "ema": 1 - lin(abs(C[j] / E[j] - 1) * 100, 2, 6), "margin": lin(beyond, 0, 1)}
         out.append({"side": "Long" if long_ else "Short", "dir": d, "bar": j, "setup": setup, "reject": reject,
                     "kind": "base", "state": state, "prior": info["prior"], "slope": _r(s0), "base_no": info["base_no"],
-                    "run": info["run"],
+                    "late": info["base_no"] > config.BB_MAX_BASE_NO, "run": info["run"],
                     "base": {"n": b["n"], "hi": _r(b["hi"]), "lo": _r(b["lo"]), "range_pct": _r(b["rng"]),
                              "adr_pct": _r(adr), "held": _r(info["held"])},
                     "stop": stop, "stop_from": "breakout candle" if big else "base",
@@ -316,7 +345,7 @@ def detect(df: pd.DataFrame, e: pd.Series, j: int) -> list[dict]:
                     "shk_detail": {"dip_vs_adr": _r(dip / adr), "wick_vs_adr": _r(wick_pct / adr), "base_candles": b["n"],
                                    "base_lo": _r(b["lo"]), "base_hi": _r(b["hi"])},
                     "kind": "shakeout", "state": state, "prior": info["prior"], "slope": _r(s0), "base_no": info["base_no"],
-                    "run": info["run"],
+                    "late": info["base_no"] > config.BB_MAX_BASE_NO, "run": info["run"],
                     "base": {"n": b["n"], "hi": _r(b["hi"]), "lo": _r(b["lo"]), "range_pct": _r(b["rng"]),
                              "adr_pct": _r(adr), "held": _r(info["held"])},
                     "stop": stop, "stop_from": "shakeout wick", "level": b["lo"] if long_ else b["hi"],
