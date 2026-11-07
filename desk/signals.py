@@ -319,10 +319,15 @@ def _evaluate_bb(df: pd.DataFrame, r: dict):
         return {"done": True, "result": "no valid stop", "entry": round(entry, 2)}
     lv = {"stop": stop, "target": entry + d * config.BB_TARGET_R * risk}
     j = df.index.get_loc(after.index[0]) - 1
-    out = _walk(df, None, j, d, lv, use_ema=False)
+    out = _walk(df, None, j, d, lv, use_ema=False, tie_unclear=True)
     if not out:
         return "wait"
     reason, px, t = out
+    if reason == "unclear":
+        # one candle touched both the stop and the 1:2 target: the order inside the candle is
+        # unknown, so the signal is kept but left out of win rate, R and profit factor
+        return {"entry": round(entry, 2), "target": round(lv["target"], 2), "result": "unclear", "alt_result": "unclear",
+                "exit_time": t.strftime("%Y-%m-%dT%H:%M"), "done": True}
     span = df.iloc[j + 1:df.index.get_loc(t) + 1]
     fav = ((span.High.max() - entry) if d > 0 else (entry - span.Low.min())) / risk
     adv = ((entry - span.Low.min()) if d > 0 else (span.High.max() - entry)) / risk
@@ -332,12 +337,15 @@ def _evaluate_bb(df: pd.DataFrame, r: dict):
             "alt_net_pct": net, "alt_r_mult": rm, "mfe_r": round(float(fav), 2), "mae_r": round(float(adv), 2), "done": True}
 
 
-def _walk(df, e, j, d, lv, use_ema: bool):
-    """Exit of a trade entered at the open of candle j+1. Returns (reason, price, time) or None."""
+def _walk(df, e, j, d, lv, use_ema: bool, tie_unclear: bool = False):
+    """Exit of a trade entered at the open of candle j+1. Returns (reason, price, time) or None.
+    With tie_unclear, a candle that reaches both stop and target returns "unclear"."""
     entry_day = df.index[j + 1].date()
     for k in range(j + 1, len(df)):
         t = df.index[k]
         o, hi, lo, c = (float(df[x].iloc[k]) for x in ("Open", "High", "Low", "Close"))
+        if tie_unclear and (lo <= lv["stop"] <= hi) and (lo <= lv["target"] <= hi):
+            return "unclear", c, t
         if d > 0:
             if lo <= lv["stop"]:
                 return "stop", min(lv["stop"], o), t

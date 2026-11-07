@@ -470,7 +470,7 @@ function closeDialog(tr, onSaved) {
 
 // ------------------------------------------------------------------ tab 1: stock screener
 /* Two views (6 Nov 2026): Price Action (chart only) and Price+OI (chart + futures OI).
-   The old 50 EMA cross rules still run in the background; they are only in Track record. */
+   The old 50 EMA cross rules still run in the background but are no longer logged (7 Nov 2026). */
 const SCR_TABS = [["pa", "Price Action"], ["po", "Price+OI"]];
 const REJ_LABEL = { strength: "Wick strength", tight: "First touch", length: "Stop room", ema: "Trend strength", margin: "Shakeout depth" };
 const SHK_LABEL = { strength: "Wick strength", margin: "Shakeout depth" };
@@ -1088,31 +1088,31 @@ async function loadSignals() {
 }
 
 async function viewRecord(app) {
-  const all = await loadSignals();
-  const rules = state.recRules || "strategy";
-  const alt = rules === "mine";
-  const res = (r) => (alt ? r.alt_result : r.result);
-  const net = (r) => +(alt ? r.alt_net_pct : r.net_pct);
-  const rr = (r) => +(alt ? r.alt_r_mult : r.r_mult);
-  const finished = (r) => res(r) && !["no data", "no valid stop"].includes(res(r));
-  const info = (r) => r.info || {};
-  const want = (r) => (r.side === "Long" ? "Long build-up" : "Short build-up");
-  // rule sets: "pa" Price Action, "po" Price+OI (6 Nov 2026), old = 50 EMA cross
+  // 7 Nov 2026: the Track record follows the current screener rules only: "pa" Price Action and
+  // "po" Price+OI. Exits: stop, 1:2 target or 5 sessions. A candle that reaches both the stop and
+  // the target is "unclear" and left out of every average. Old 50 EMA cross rows are not shown.
   const rulesOf = (r) => (r.info && r.info.rules) || "old";
-  const RULE_NAME = { pa: "Price Action", po: "Price+OI", old: "Old rules" };
-  const oldRows = all.filter((r) => rulesOf(r) === "old");
-  const ideas = oldRows.filter((r) => r.kind === "idea"), rejected = oldRows.filter((r) => r.kind === "rejected");
+  const all = (await loadSignals()).filter((r) => ["pa", "po"].includes(rulesOf(r)));
+  const res = (r) => r.result;
+  const net = (r) => +r.net_pct;
+  const rr = (r) => +r.r_mult;
+  const finished = (r) => res(r) && !["no data", "no valid stop", "unclear"].includes(res(r));
+  const info = (r) => r.info || {};
+  const RULE_NAME = { pa: "Price Action", po: "Price+OI" };
   const pa = all.filter((r) => rulesOf(r) === "pa" && r.kind === "idea");
-  const po = all.filter((r) => rulesOf(r) === "po" && r.kind === "idea"), poRej = all.filter((r) => rulesOf(r) === "po" && r.kind === "rejected");
+  const po = all.filter((r) => rulesOf(r) === "po" && r.kind === "idea");
+  const poRej = all.filter((r) => rulesOf(r) === "po" && r.kind === "rejected");
   const paRej = all.filter((r) => rulesOf(r) === "pa" && r.kind === "rejected");   // rejections that failed the checks
-  const nb = pa.concat(po);
 
   const agg = (rows) => {
     const f = rows.filter(finished);
     const n = f.length, wins = f.filter((r) => net(r) > 0);
     const gain = wins.reduce((a, r) => a + net(r), 0), loss = f.filter((r) => net(r) <= 0).reduce((a, r) => a + net(r), 0);
     const mf = f.filter((r) => isNum(+r.mfe_r) && r.mfe_r != null);
-    return { signals: rows.length, n, win: n ? (wins.length / n) * 100 : null, avg: n ? f.reduce((a, r) => a + net(r), 0) / n : null,
+    return { signals: rows.length, n, unclear: rows.filter((r) => res(r) === "unclear").length,
+      target: f.filter((r) => res(r) === "target").length, stop: f.filter((r) => res(r) === "stop").length,
+      time: f.filter((r) => res(r) === "time").length,
+      win: n ? (wins.length / n) * 100 : null, avg: n ? f.reduce((a, r) => a + net(r), 0) / n : null,
       r: n ? f.reduce((a, r) => a + rr(r), 0) / n : null, pf: loss < 0 ? gain / -loss : n && gain > 0 ? Infinity : null,
       oneR: mf.length ? (mf.filter((r) => +r.mfe_r >= 1).length / mf.length) * 100 : null };
   };
@@ -1123,6 +1123,8 @@ async function viewRecord(app) {
     return h("tr", { class: g.n < MIN_N ? "few" : null, style: "cursor:default" },
       h("td", { class: "l" }, label, note ? h("small", null, note) : null),
       h("td", null, g.signals), h("td", null, g.n),
+      h("td", { title: "Target / Stop / 5 sessions" }, g.n ? `${g.target} / ${g.stop} / ${g.time}` : "–"),
+      h("td", null, g.unclear || "–"),
       h("td", null, isNum(g.win) ? `${Math.round(g.win)}%` : "–"),
       h("td", { class: sign(g.avg) }, pct(g.avg)), h("td", { class: sign(g.r) }, rFmt(g.r)),
       h("td", null, g.pf === Infinity ? "∞" : isNum(g.pf) ? g.pf.toFixed(2) : "–"),
@@ -1131,112 +1133,67 @@ async function viewRecord(app) {
   const groupTable = (title, sub, rows) => h("section", null,
     h("div", { class: "section-head" }, h("h2", null, title), sub ? h("p", null, sub) : null),
     h("div", { class: "panel" }, h("div", { class: "table-scroll" }, h("table", { class: "tr-groups" },
-      h("thead", null, h("tr", null, ["Group", "Signals", "Finished", "Win rate", "Avg net %", "Avg R", "Profit factor", "Reached 1R"].map((c, i) =>
+      h("thead", null, h("tr", null, ["Group", "Signals", "Finished", "Target / Stop / 5 sess.", "Unclear", "Win rate", "Avg net %", "Avg R", "Profit factor", "Reached 1R"].map((c, i) =>
         h("th", { class: i ? null : "l" }, c)))),
       h("tbody", null, rows.map(([label, note, list]) => groupRow(label, note, list)))))));
 
-  const hourIs = (r, f) => { const hr = info(r).hourly; return f(hr, r); };
-  const dayOi = (r) => Math.abs(+(info(r).futures?.pchg_oi) || 0);
-  const warnN = (r) => (info(r).warnings || []).length;
-  const against = (r) => (r.side === "Long" ? "down" : "up");
-  const regimeBad = (r) => (r.side === "Long" ? "Red" : "Green"), regimeGood = (r) => (r.side === "Long" ? "Green" : "Red");
-  const risk = (r) => info(r).risk_pct;
-
-  const ranking = [
-    ["Live Top 5", "Rank 1–5 in the scan that first listed it", ideas.filter((r) => r.top_rank)],
-    ["Not in live Top 5", null, ideas.filter((r) => !r.top_rank)],
-    ["Proposed score Top 5", "Signal-hour OI 35, day OI 25, candle shape 25 + size 15, + sector", ideas.filter((r) => r.rank_v2 && r.rank_v2 <= 5)],
-    ["All ideas", null, ideas],
-    ["Rejected by the day's futures", "Day build-up against the trade; not shown as ideas", rejected],
+  const kindOf = (r) => info(r).kind;
+  const isBase = (r) => !["rejection", "shakeout"].includes(kindOf(r));
+  const paSets = [
+    ["All ideas", "Chart only", pa],
+    ["Top 5", "Rank 1–5 in the scan that first listed it", pa.filter((r) => r.top_rank)],
+    ["Base breakouts", "Base 1 or 2, including a flattening EMA", pa.filter(isBase)],
+    ["Shakeout in the base", "Dip below the base, close back inside; entry at the next open", pa.filter((r) => kindOf(r) === "shakeout")],
+    ["Rejection at the 50 EMA", "Wick off a rising (Long) or falling (Short) EMA", pa.filter((r) => kindOf(r) === "rejection")],
+    ["Rejection that failed the checks", "Not shown as ideas; entry right after the rejection candle. Should do worse than the ones that passed", paRej.filter((r) => kindOf(r) !== "shakeout")],
+    ["Shakeout that failed the checks", "Not shown as ideas", paRej.filter((r) => kindOf(r) === "shakeout")],
   ];
-  const oi = [
-    ["Signal hour agrees", "Same-direction build-up in the signal hour", ideas.filter((r) => hourIs(r, (hr) => hr && hr.buildup === want(r)))],
-    ["Signal hour against", "Covering, unwinding or opposite build-up", ideas.filter((r) => hourIs(r, (hr) => hr && hr.buildup !== want(r) && hr.buildup !== "OI flat"))],
-    ["Signal hour OI flat", null, ideas.filter((r) => hourIs(r, (hr) => hr && hr.buildup === "OI flat"))],
-    ["Signal hour unknown", "No snapshot before the signal", ideas.filter((r) => !info(r).hourly)],
-    ["Day OI change under 3%", null, ideas.filter((r) => dayOi(r) < 3)],
-    ["Day OI change 3–7%", null, ideas.filter((r) => dayOi(r) >= 3 && dayOi(r) < 7)],
-    ["Day OI change 7–15%", null, ideas.filter((r) => dayOi(r) >= 7 && dayOi(r) < 15)],
-    ["Day OI change 15% or more", null, ideas.filter((r) => dayOi(r) >= 15)],
-    ["Rejected by day, but signal hour agreed", "Would the signal-hour reading rescue these?", rejected.filter((r) => hourIs(r, (hr) => hr && hr.buildup === want(r)))],
+  const poSets = [
+    ["All ideas", "Chart + futures OI", po],
+    ["Top 5", "Rank 1–5 in the scan that first listed it", po.filter((r) => r.top_rank)],
+    ["Base breakouts", null, po.filter(isBase)],
+    ["Shakeout in the base", null, po.filter((r) => kindOf(r) === "shakeout")],
+    ["Rejection at the 50 EMA", null, po.filter((r) => kindOf(r) === "rejection")],
+    ["OI in the breakout candle", null, po.filter((r) => info(r).confirm === "breakout candle")],
+    ["OI in the next candle", "One-candle wait; entry a candle later", po.filter((r) => info(r).confirm === "next candle")],
+    ["Rejected by OI", "Good chart, OI never confirmed or day build-up against", poRej],
   ];
-  const ctx = [
-    ["Sector boost", "Sector leading in the trade's direction", ideas.filter((r) => info(r).scoring?.boost > 0)],
-    ["No sector boost", null, ideas.filter((r) => !(info(r).scoring?.boost > 0))],
-    ["With the daily trend", "Long above / Short below the 20-day average", ideas.filter((r) => info(r).daily_trend && info(r).daily_trend !== against(r))],
-    ["Against the daily trend", null, ideas.filter((r) => info(r).daily_trend === against(r))],
-    ["Regime with the trade", "Long on Green, Short on Red", ideas.filter((r) => info(r).regime === regimeGood(r))],
-    ["Regime Amber", null, ideas.filter((r) => info(r).regime === "Amber")],
-    ["Regime against the trade", "Long on Red, Short on Green", ideas.filter((r) => info(r).regime === regimeBad(r))],
-    ["Breakout volume at or above usual", "Vs the same hourly candle, last 10 sessions", ideas.filter((r) => isNum(info(r).vol_ratio) && info(r).vol_ratio >= 1)],
-    ["Breakout volume below usual", null, ideas.filter((r) => isNum(info(r).vol_ratio) && info(r).vol_ratio < 1)],
-    ["Small candle (under 0.6x usual range)", "Vs the same hourly candle, last 10 sessions", ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio < 0.6)],
-    ["Normal candle size (0.6–2.5x)", null, ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio >= 0.6 && info(r).size_ratio <= 2.5)],
-    ["Very big candle (over 2.5x)", null, ideas.filter((r) => isNum(info(r).size_ratio) && info(r).size_ratio > 2.5)],
-    ["Choppy (3+ EMA crosses before)", null, ideas.filter((r) => (info(r).ema_crosses || 0) >= 3)],
-    ["Not choppy", null, ideas.filter((r) => (info(r).ema_crosses || 0) < 3)],
-    ["Stop under 0.4%", null, ideas.filter((r) => isNum(risk(r)) && risk(r) < 0.4)],
-    ["Stop 0.4–2.5%", null, ideas.filter((r) => isNum(risk(r)) && risk(r) >= 0.4 && risk(r) <= 2.5)],
-    ["Stop over 2.5%", null, ideas.filter((r) => isNum(risk(r)) && risk(r) > 2.5)],
-    ["Results within 5 sessions", null, ideas.filter((r) => isNum(info(r).results_sessions) && info(r).results_sessions <= 5)],
-    ["No warnings", null, ideas.filter((r) => warnN(r) === 0)],
-    ["1 warning", null, ideas.filter((r) => warnN(r) === 1)],
-    ["2 or more warnings", null, ideas.filter((r) => warnN(r) >= 2)],
-    ["Longs", null, ideas.filter((r) => r.side === "Long")],
-    ["Shorts", null, ideas.filter((r) => r.side === "Short")],
+  const detail = (rows) => [
+    ["Rising 50 EMA", null, rows.filter((r) => info(r).state === "rising")],
+    ["Flat 50 EMA", null, rows.filter((r) => info(r).state === "flat")],
+    ["Falling 50 EMA", null, rows.filter((r) => info(r).state === "falling")],
+    ["Base 1", null, rows.filter((r) => info(r).base_no === 1)],
+    ["Base 2", null, rows.filter((r) => info(r).base_no === 2)],
+    ["Stop at the breakout candle (2%+ candle)", null, rows.filter((r) => info(r).stop_from === "breakout candle")],
+    ["Stop at the base", null, rows.filter((r) => info(r).stop_from === "base")],
+    ["Sector leading", null, rows.filter((r) => info(r).sector)],
+    ["No sector boost", null, rows.filter((r) => !info(r).sector)],
+    ["Longs", null, rows.filter((r) => r.side === "Long")],
+    ["Shorts", null, rows.filter((r) => r.side === "Short")],
   ];
-
-  const ruleSets = [
-    ["Price Action: all ideas", "Chart only", pa],
-    ["Price Action: Top 5", null, pa.filter((r) => r.top_rank)],
-    ["Price+OI: all ideas", "Chart + futures OI", po],
-    ["Price+OI: Top 5", null, po.filter((r) => r.top_rank)],
-    ["Price+OI: OI in the breakout candle", null, po.filter((r) => info(r).confirm === "breakout candle")],
-    ["Price+OI: OI in the next candle", "One-candle wait; entry a candle later", po.filter((r) => info(r).confirm === "next candle")],
-    ["Price+OI: rejected by OI", "Good chart, OI never confirmed or day build-up against", poRej],
-    ["Price Action: base breakouts", "Base 1 or 2, flattening EMA", pa.filter((r) => !["rejection", "shakeout"].includes(info(r).kind))],
-    ["Price Action: shakeout in the base", "Dip below the base, close back inside; entry at the next open", pa.filter((r) => info(r).kind === "shakeout")],
-    ["Price Action: rejection at the 50 EMA", "Wick off a rising (Long) or falling (Short) EMA", pa.filter((r) => info(r).kind === "rejection")],
-    ["Price+OI: rejection at the 50 EMA", null, po.filter((r) => info(r).kind === "rejection")],
-    ["Rejection that failed the checks", "Not shown as ideas; entry right after the rejection candle. Should do worse than the ones that passed", paRej.filter((r) => info(r).kind !== "shakeout")],
-    ["Shakeout that failed the checks", "Not shown as ideas", paRej.filter((r) => info(r).kind === "shakeout")],
-    ["Old rules: all ideas", "50 EMA cross + day futures build-up", ideas],
-    ["Old rules: Top 5", null, ideas.filter((r) => r.top_rank)],
-  ];
-  const nbDetail = [
-    ["Rising 50 EMA", "Price Action ideas", pa.filter((r) => info(r).state === "rising")],
-    ["Flat 50 EMA", null, pa.filter((r) => info(r).state === "flat")],
-    ["Falling 50 EMA", null, pa.filter((r) => info(r).state === "falling")],
-    ["Base 1", null, pa.filter((r) => info(r).base_no === 1)],
-    ["Base 2", null, pa.filter((r) => info(r).base_no === 2)],
-    ["Stop at the breakout candle (2%+ candle)", null, pa.filter((r) => info(r).stop_from === "breakout candle")],
-    ["Stop at the base", null, pa.filter((r) => info(r).stop_from === "base")],
+  const paDetail = detail(pa).concat([
     ["Also qualified on Price+OI", null, pa.filter((r) => info(r).also)],
-    ["Price Action only", null, pa.filter((r) => !info(r).also)],
-    ["Sector leading", null, pa.filter((r) => info(r).sector)],
-    ["No sector boost", null, pa.filter((r) => !info(r).sector)],
-    ["Longs", null, pa.filter((r) => r.side === "Long")],
-    ["Shorts", null, pa.filter((r) => r.side === "Short")],
-  ];
-  const top = agg(ideas.filter((r) => r.top_rank)), rest = agg(ideas.filter((r) => !r.top_rank)), allI = agg(ideas);
+    ["Price Action only", null, pa.filter((r) => !info(r).also)]]);
   const aPA = agg(pa), aPO = agg(po);
-  const openN = all.filter((r) => !finished(r) && !r.done).length;
+  const unclearN = all.filter((r) => res(r) === "unclear").length;
+  const openN = all.filter((r) => !res(r) && !r.done).length;
   const first = all.length ? all[all.length - 1].signal_time : null;
   const stats = h("div", { class: "stats" },
-    stat("Signals logged", all.length, `${pa.length} Price Action, ${po.length} Price+OI, ${ideas.length} old-rule ideas${first ? ` · since ${dayLabel(first)}` : ""}`),
+    stat("Signals logged", all.length, `${pa.length} Price Action, ${po.length} Price+OI ideas${first ? ` · since ${dayLabel(first)}` : ""}`),
     stat("Still running", openN, "Not finished yet"),
     stat("Price Action", rFmt(aPA.r), `${aPA.n} finished · win ${isNum(aPA.win) ? Math.round(aPA.win) + "%" : "–"}`, sign(aPA.r)),
     stat("Price+OI", rFmt(aPO.r), `${aPO.n} finished · win ${isNum(aPO.win) ? Math.round(aPO.win) + "%" : "–"}`, sign(aPO.r)),
-    stat("Old rules", rFmt(allI.r), `${allI.n} finished · win ${isNum(allI.win) ? Math.round(allI.win) + "%" : "–"}`, sign(allI.r)));
+    stat("Unclear", unclearN, "Stop and target in one candle; left out"));
 
   const resTag = (r) => {
     const v = res(r);
     if (!v) return h("span", { class: "muted" }, "running");
-    return h("span", { class: `res-tag ${v}` }, { target: "Target", stop: "Stop", ema_exit: "50 EMA exit", time: "5 sessions" }[v] || v);
+    return h("span", { class: `res-tag ${v}`, title: v === "unclear" ? "One candle reached both the stop and the target" : "" },
+      { target: "Target", stop: "Stop", time: "5 sessions", unclear: "Unclear" }[v] || v);
   };
   const recent = h("table", null,
-    h("thead", null, h("tr", null, ["Signal", "Stock", "Side", "Rules", "List", "Score", "Proposed", "Signal hour", "Warnings", "Result", "Net %", "R", "Best R"].map((c, i) =>
-      h("th", { class: i < 5 || i === 9 ? "l" : null }, c)))),
+    h("thead", null, h("tr", null, ["Signal", "Stock", "Side", "Rules", "List", "Score", "Signal hour", "Warnings", "Result", "Net %", "R", "Best R"].map((c, i) =>
+      h("th", { class: i < 5 || i === 8 ? "l" : null }, c)))),
     h("tbody", null, all.slice(0, 60).map((r) => {
       const hr = info(r).hourly, w = info(r).warnings || [];
       return h("tr", { style: "cursor:default" },
@@ -1244,9 +1201,8 @@ async function viewRecord(app) {
         h("td", { class: "l name" }, r.symbol, chartLink(r.symbol)),
         h("td", { class: "l" }, sideTag(r.side)),
         h("td", { class: "l", title: info(r).setup || "" }, RULE_NAME[rulesOf(r)]),
-        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "old" ? "Rejected (day OI)" : rulesOf(r) === "pa" ? "Failed checks" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
+        h("td", { class: "l" }, r.kind === "rejected" ? h("span", { class: "muted", title: info(r).reason || "" }, rulesOf(r) === "pa" ? "Failed checks" : "Rejected (OI)") : r.top_rank ? h("span", { class: "flag fno" }, `Top ${r.top_rank}`) : "Idea"),
         h("td", null, isNum(+r.score) && r.score != null ? Math.round(r.score) : "–"),
-        h("td", null, r.rank_v2 ? `#${r.rank_v2}` : "–"),
         h("td", { title: hr ? hourText(hr) : "" }, hr ? `${hr.buildup.replace(" build-up", "")} ${pct(hr.oi_pct, 1)}` : "–"),
         h("td", null, w.length ? h("span", { class: "warn-count", title: w.join("\n") }, w.length) : "–"),
         h("td", { class: "l" }, resTag(r)),
@@ -1255,22 +1211,14 @@ async function viewRecord(app) {
         h("td", null, r.mfe_r != null ? `${(+r.mfe_r).toFixed(1)}R` : "–"));
     })));
 
-  const rulesSeg = h("div", { class: "seg", role: "group", "aria-label": "Exit rules" },
-    [["strategy", "Old rules: strategy exits (with 50 EMA)"], ["mine", "Old rules: stop, target, 5 sessions"]].map(([k, l]) =>
-      h("button", { type: "button", "aria-pressed": String(rules === k), onclick: () => { state.recRules = k; route(); } }, l)));
-
   render(app,
-    pageHead("Track record", LIVE ? "Every screener signal, logged automatically: Price Action, Price+OI and the old rules" : "Preview: sample data"),
-    h("div", { class: "filters" }, rulesSeg),
-    h("p", { class: "intro" }, "Each idea is saved the first time a scan lists it, with its setup, score parts and warnings. Price+OI also saves setups that futures OI did not confirm, and the old rules save 50 EMA signals rejected by the day's build-up. Later scans fill in what happened from the entry candle's open. Price Action and Price+OI: stop, 1:2 target or 5 sessions. Old rules: ",
-      alt ? "stop, 1:2 target or 5 sessions." : "stop, 1:2 target, a close back across the 50 EMA, or 5 sessions (their strategy's rules).",
-      " R = result ÷ the risk to the stop. Net % is after 0.1% costs. Reached 1R = the trade was at least 1R in profit at some point. Greyed rows have fewer than 20 finished signals: too few to judge."),
-    all.length ? stats : h("p", { class: "empty" }, "No signals logged yet. They start with the next scan after the signal log table is set up."),
-    all.length ? groupTable("Rule sets", "Price Action and Price+OI (from 6 Nov 2026) vs the old 50 EMA cross rules. New rules: stop, 1:2 target or 5 sessions", ruleSets) : null,
-    nb.length ? groupTable("Price Action details", "Which kind of setup works", nbDetail) : null,
-    all.length ? groupTable("Old rules: ranking", "50 EMA cross rules, still logged in the background. The exit buttons above apply to these", ranking) : null,
-    all.length ? groupTable("Old rules: futures OI", "The day's build-up was the filter; the signal hour was tested", oi) : null,
-    all.length ? groupTable("Old rules: context and warnings", "Ideas only", ctx) : null,
+    pageHead("Track record", LIVE ? "Every Price Action and Price+OI signal, logged automatically" : "Preview: sample data"),
+    h("p", { class: "intro" }, "Each idea is saved the first time a scan lists it, with its setup, score parts and warnings. Price+OI also saves setups that futures OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks. Later scans fill in what happened from the entry candle's open: the trade exits at the stop, at the 1:2 target, or at the close of the 5th session. If one candle reaches both the stop and the target, the order is unknown, so the signal is marked Unclear and left out of the averages. R = result ÷ the risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = the trade was at least 1R in profit at some point. Greyed rows have fewer than 20 finished signals: too few to judge."),
+    all.length ? stats : h("p", { class: "empty" }, "No signals logged yet. New signals appear with the next stock scan."),
+    all.length ? groupTable("Price Action", "Chart only. Stop, 1:2 target or 5 sessions", paSets) : null,
+    all.length ? groupTable("Price+OI", "Chart + futures OI. Stop, 1:2 target or 5 sessions", poSets) : null,
+    pa.length ? groupTable("Price Action details", "Which kind of setup works", paDetail) : null,
+    po.length ? groupTable("Price+OI details", "Which kind of setup works", detail(po)) : null,
     all.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Latest signals"), h("p", null, "Newest first, up to 60")),
       h("div", { class: "panel" }, h("div", { class: "table-scroll" }, recent))) : null);
 }
@@ -1355,16 +1303,16 @@ function viewReadme(app) {
       list([
         "Every run's ideas are kept for the day, per tab, as Run 1 (about 10:19), Run 2 (11:19) … plus any Run scanner presses. A setup already listed in an earlier run is tagged “also Run N”; “also PA” / “also P+OI” means it qualifies on the other tab too.",
       ]),
-      h("h3", { class: "readme-h" }, "9. Old rules (background only)"),
+      h("h3", { class: "readme-h" }, "9. Old rules (no longer tracked)"),
       list([
-        "The earlier 50 EMA cross rules (a solid candle crosses the 50 EMA, the day's futures build-up as the filter, stop at the candle or 10-candle swing, exit on a close back across the EMA) still run at every scan. They are no longer shown on the screener; their signals are logged so Track record can compare them with the new rules.",
+        "The earlier 50 EMA cross rules (a solid candle crosses the 50 EMA, the day's futures build-up as the filter, stop at the candle or 10-candle swing, exit on a close back across the EMA) are not shown on the screener and, since 7 Nov 2026, are no longer logged in Track record.",
       ])),
 
-    sec("Track record", "Signal log",
+    sec("Track record", "Signal log: Price Action and Price+OI only (since 7 Nov 2026)",
       list([
-        "Every idea from both tabs is saved the first time a scan lists it, with its setup, score parts and warnings; Price+OI also saves setups that OI did not confirm. The old 50 EMA cross rules keep logging in the background.",
-        "Later scans fill in the result from the entry candle's open: stop, 1:2 target or 5 sessions (old rules: also a close back across the 50 EMA, or the stop/target/5-session view).",
-        "R = result ÷ risk to the stop. Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
+        "Every idea from both tabs is saved the first time a scan lists it, with its setup, score parts and warnings; Price+OI also saves setups that OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks.",
+        "Later scans fill in the result from the entry candle's open: the stop, the 1:2 target, or the close of the 5th session, whichever comes first. If one candle reaches both the stop and the target, the order is unknown: the signal is marked Unclear and left out of win rate, R and profit factor.",
+        "R = result ÷ risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
       ])),
 
     sec("Suggested index trades", "Swing only: monthly chain, up to 5 sessions",

@@ -16,7 +16,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 | Watchlist (`#/watch`) | F&O Desk's own watchlist (Supabase table `watchlist`; Sector Strength and Fundamentals Desk share a different one, `fd_watchlist`) | — |
 | My Trades (`#/trades`) | Stock trades (% after costs), index trades as futures (₹ P&L); auto-close at stop, target or after 5 sessions | with each job |
 | Readme (`#/readme`) | Current rules and scores in plain words (static text in `viewReadme` in `site/app.js`: **update it when a rule changes**) | — |
-| Track record (`#/record`) | Signal log (Supabase `signal_log`): every idea + signals rejected by day OI, with score parts, signal-hour OI, warnings; results by group | with each stock scan |
+| Track record (`#/record`) | Signal log (Supabase `signal_log`), current rules only (7 Nov 2026): Price Action and Price+OI ideas + their rejected/failed-check setups, grouped by setup type; exits stop, 1:2 target or 5 sessions; stop+target in one candle = "unclear", left out of averages | with each stock scan |
 
 ## Main files
 - `desk/snapshot.py` – index chains (NSE v3, BSE for SENSEX), index futures, swing signals, warnings
@@ -61,6 +61,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
   - Scores: Price Action = candle 35 (strength 14, size 11, volume 10) + base 27 (tight 16, length 11) + near EMA 14 + margin 14 + sector 10. Price+OI = candle 25 + base 20 + EMA 10 + margin 10 + signal-hour OI 15 + day OI 10 + sector 10. He wants chart weighted above OI (price usually moves first). (Tried volume 0 / sector 15 on 6 Nov 2026 and reverted the same evening: he prefers volume in the score.)
   - Warnings only: results, F&O ban, stop < 0.4%, daily trend, regime, volume, candle size, chop.
   - Signal log keys: `pa|SYM|Side|time`, `po|…` (info.rules); old rules keep the plain key. Hourly OI snapshots keep ~10 sessions (`OI_SNAP_KEEP` 75) and store yesterday's closing OI as the 3rd value.
+- Track record (decided 7 Nov 2026): follows the current screener rules only (`pa|`, `po|` keys). Old 50 EMA cross rows are no longer written (`desk/screener.py`) and the site ignores any left over; `supabase/012_track_record_new_rules.sql` deletes them (run once in Supabase). Results: entry at the open after `entry_after`, stop as logged, target 1:2 (`BB_TARGET_R`), exit at the close of the 5th session (`EF_MAX_DAYS`); a candle reaching both stop and target = `result` "unclear" (no net %/R, excluded from win rate, avg and profit factor; `_walk(..., tie_unclear=True)` in `desk/signals.py`).
 - Signal-hour OI for a 9:15 candle is measured from yesterday's closing OI (NSE day change), never from yesterday's last snapshot (fixed 6 Nov 2026).
 - Stock names link to TradingView (his saved layout with 50 EMA + RSI).
 - NSE/BSE endpoints are unofficial and change without notice; each run reports problems in its summary.

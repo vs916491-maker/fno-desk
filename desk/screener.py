@@ -664,9 +664,9 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         after.append(f"day log not saved: {exc}"[:200])
     try:
-        after.append(signals.write_log(db, signals.log_rows(ideas, "idea", doc["ts"]) +
-                                       signals.log_rows(rejected, "rejected", doc["ts"]) +
-                                       signals.log_bb(bb["pa"] + bb["po"], "idea", doc["ts"]) +
+        # 7 Nov 2026: the Track record follows the current rules only (Price Action, Price+OI).
+        # The old 50 EMA cross ideas are no longer written to the signal log.
+        after.append(signals.write_log(db, signals.log_bb(bb["pa"] + bb["po"], "idea", doc["ts"]) +
                                        signals.log_bb(bb["po_rejected"] + bb["rej_failed"], "rejected", doc["ts"])))
     except Exception as exc:  # noqa: BLE001
         after.append(f"signal log not written: {exc}"[:220] + (" (run supabase/010_signal_log.sql)" if "signal_log" in str(exc) else ""))
