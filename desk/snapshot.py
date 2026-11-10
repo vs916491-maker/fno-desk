@@ -2,7 +2,7 @@
 
 1. Fetches option chains (nearest + swing monthly; NIFTY weekly), index futures
    and index quotes; stores them.
-2. Computes the swing signals, NIFTY intraday trend scale, warnings, option
+2. Computes the swing signals, intraday trend scale (every index), warnings, option
    chain summaries and hourly PCR / futures OI history.
 3. Publishes three documents the website reads: index_dashboard,
    swing_signals, option_chains. At/after 15:15 it saves the day's official
@@ -152,7 +152,7 @@ def main() -> int:
         return frame(rows)
 
     # ------------------------------------------------------------ compute
-    cards, signals, warnings, charts, option_chains = [], [], [], {}, {}
+    cards, signals, warnings, charts, option_chains, trends = [], [], [], {}, {}, {}
     for sym, meta in config.INDICES.items():
         futs = futs_all[futs_all.symbol == sym] if not futs_all.empty else pd.DataFrame()
         mon = chains.get((sym, "monthly"))
@@ -174,6 +174,14 @@ def main() -> int:
                       "max_pain": lv.get("max_pain"), "atm_iv": lv.get("atm_iv"),
                       "fut": fd, "signal": sig.get("direction"), "signal_strength": sig.get("strength"),
                       "signal_score": sig.get("score")})
+        # intraday trend scale on the index's main chain (weekly if it has one, else monthly)
+        try:
+            tr = engine.trend_scale(snaps_main, futs if not futs.empty else None,
+                                    meta["strike_step"], main_kind)
+            if tr:
+                trends[sym] = tr
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"{sym} trend scale: {exc}"[:200])
         for w in (engine.squeeze_warning(snaps_main, sym), engine.expiry_warning(sym, nearest.get(sym), today)):
             if w:
                 warnings.append({"symbol": sym, "text": w,
@@ -206,14 +214,10 @@ def main() -> int:
                             "pe_oi", "pe_coi", "pe_ltp", "pe_iv", "pe_vol"]].round(2).values.tolist(),
             })
 
-    nifty_w = chains.get(("NIFTY", "weekly"))
-    trend = None
-    if nifty_w:
-        futs_n = futs_all[futs_all.symbol == "NIFTY"] if not futs_all.empty else None
-        trend = engine.trend_scale(today_snaps("NIFTY", nifty_w["expiry"]), futs_n)
+    trend = trends.get("NIFTY")   # kept as its own key for older pages
 
     vix = quotes.get("INDIA VIX")
-    dash = {"ts": ts, "cards": cards, "vix": vix, "trend": trend, "warnings": warnings,
+    dash = {"ts": ts, "cards": cards, "vix": vix, "trend": trend, "trends": trends, "warnings": warnings,
             "charts": charts, "problems": problems}
     db.put_doc("index_dashboard", dash)
     db.put_doc("swing_signals", {"ts": ts, "signals": signals,
@@ -265,7 +269,7 @@ def main() -> int:
 
     summary = (f"{ts}: chains {len(chains)}, chain rows {len(chain_store)}, futures {len(fut_rows)}, "
                f"signals " + ", ".join(f"{s['symbol']} {s.get('direction')} {s.get('score')}" for s in signals)
-               + f"; trend {trend['zone'] if trend else '-'} {trend['score'] if trend else ''}; "
+               + "; trend " + (", ".join(f"{k} {v['zone']} {v['score']}" for k, v in trends.items()) or "-") + "; "
                f"warnings {len(warnings)}; setups logged {events}; trades closed {closed}; problems {len(problems)}\n"
                + "\n".join(f"{c['symbol']}: spot {c['spot']} ({c.get('pchange')}%), PCR {c['pcr']} {c['pcr_kind']} "
                            f"{c['expiry']}, S {c['support']} R {c['resistance']} MP {c['max_pain']} IV {c['atm_iv']}, "

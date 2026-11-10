@@ -10,7 +10,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 | Tab | What it shows | Updates |
 |---|---|---|
 | F&O stock screener (`#/stocks`) | Two views (6 Nov 2026): **Price Action** (default, chart only) and **Price+OI** (chart + futures OI, "Waiting for OI" list). Hourly base breakouts by 50 EMA state (`desk/setups.py`); own Top 5 per view; all ideas of the day kept by run (doc `stock_screener_day`); "I took this trade"; Run scanner button. Old 50 EMA cross rules run in the background, logged only | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
-| F&O index analysis (`#/index`) | Index cards, warnings (squeeze, expiry), NIFTY intraday trend scale, hourly PCR (monthly + weekly), futures OI | every 15 min, 09:15–15:30 |
+| F&O index analysis (`#/index`) | Index cards, warnings (squeeze, expiry), intraday trend scale for the clicked index (all 5 since 10 Nov 2026; doc key `trends`), hourly PCR (monthly + weekly), futures OI | every 15 min, 09:15–15:30 |
 | Option chain (`#/chain`) | NIFTY, SENSEX, BANKNIFTY, FINNIFTY, MIDCPNIFTY: OI, change in OI, LTP, IV, PCR, max pain, walls | every 15 min |
 | Suggested index trades (`#/swing`) | Swing only (monthly chain, up to 5 sessions), 5-factor score, futures trade by OI walls / volatility; 3:15 pm signal history | every 15 min |
 | Watchlist (`#/watch`) | F&O Desk's own watchlist (Supabase table `watchlist`; Sector Strength and Fundamentals Desk share a different one, `fd_watchlist`) | — |
@@ -44,6 +44,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 
 ## Rules / decisions to keep
 - Index trades: swing only, no automatic paper trades.
+- Intraday trend scale (10 Nov 2026, his choice): computed for every index on its main chain (weekly NIFTY/SENSEX, monthly BANKNIFTY/FINNIFTY/MIDCPNIFTY), same 5 factors and zones; SENSEX scores futures 0 (no feed). `index_dashboard.trends[sym]`; `trend` key kept = NIFTY for old pages. Panel follows the clicked card.
 - Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted). Exception (5 Nov 2026, both sites): a trade closed by hand can be edited or reopened until the next weekday 19:40 IST (`closed_at` set by a trigger, `trade_fix_until()`, RLS in `supabase/011_fix_closed_trades.sql`); trades closed by the jobs lock at once.
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).
 - My Trades totals at the top cover the current financial year only (Apr–Mar) and start fresh each 1 April; completed years show in "Year by year".

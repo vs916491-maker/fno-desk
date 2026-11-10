@@ -5,8 +5,10 @@ Swing (monthly chain, up to 5 sessions), all five indices:
             + change-in-OI PCR + futures OI build-up                  (-5..+5)
     LONG at >= +2.5, SHORT at <= -2.5; Strong at +/-3.5 or beyond.
 
-NIFTY intraday trend scale (weekly chain): the four option factors
+Intraday trend scale, every index (10 Nov 2026; was NIFTY only), on the index's
+main chain (weekly where it has one, else monthly): the four option factors
     + the futures build-up over the last 60 minutes                    (-5..+5)
+    (SENSEX has no futures feed, so that factor is 0.)
 
 Inputs are pandas frames:
     snaps  one symbol + expiry, today's snapshots: ts, spot, strike, ce_*, pe_*
@@ -371,14 +373,15 @@ def swing_trades(sig: dict) -> list[dict]:
     return out
 
 
-# ====================================================================== NIFTY intraday trend scale
-def trend_scale(snaps: pd.DataFrame, futs: pd.DataFrame | None) -> dict | None:
+# ====================================================================== intraday trend scale (every index)
+def trend_scale(snaps: pd.DataFrame, futs: pd.DataFrame | None, step: float = 50,
+                chain: str = "weekly") -> dict | None:
     if snaps is None or snaps.empty:
         return None
     latest, past, mode, warnings = split_snaps(snaps)
     spot = float(latest.spot.iloc[0])
     f_oi, _, _ = oi_shift(latest, past, spot, mode)
-    lv = chain_levels(latest, spot, 50)
+    lv = chain_levels(latest, spot, step)
     factors = [f_oi, pcr_level(lv["pcr"] if lv["pcr"] is not None else float("nan")),
                pcr_slope(pcr_series(snaps))[0], coi_pcr(latest)]
     name = "Futures build-up, last 60 min"
@@ -401,7 +404,9 @@ def trend_scale(snaps: pd.DataFrame, futs: pd.DataFrame | None) -> dict | None:
         if abs(score) >= cut:
             zone = f"{label} {'bullish' if score > 0 else 'bearish'}"
             break
-    return {"score": score, "zone": zone, "factors": factors, "ts": str(latest.ts.iloc[0])}
+    return {"score": score, "zone": zone, "factors": factors, "ts": str(latest.ts.iloc[0]),
+            "chain": chain, "expiry": str(latest.expiry.iloc[0]) if "expiry" in latest else None,
+            "has_futures": futs is not None and not futs.empty}
 
 
 # ====================================================================== warnings

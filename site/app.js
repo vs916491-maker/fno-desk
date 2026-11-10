@@ -677,18 +677,30 @@ async function viewIndex(app) {
 
   const banners = (d.warnings || []).map((w) => h("div", { class: `banner ${w.kind}` }, h("b", null, w.kind === "squeeze" ? "Squeeze risk. " : "Expiry. "), w.text));
 
-  // NIFTY trend scale
-  let trendPanel = null;
-  if (d.trend) {
-    const t = d.trend, posPct = ((Math.max(-5, Math.min(5, t.score)) + 5) / 10) * 100;
+  // intraday trend scale for the selected index (every index since 10 Nov 2026; older snapshots had NIFTY only)
+  const trends = d.trends || (d.trend ? { NIFTY: d.trend } : {});
+  const t = trends[cur.symbol];
+  let trendPanel;
+  if (t) {
+    const posPct = ((Math.max(-5, Math.min(5, t.score)) + 5) / 10) * 100;
+    const kind = t.chain === "monthly" ? "Monthly" : "Weekly";
+    const exp = t.expiry ? ` (expiry ${t.expiry})` : "";
+    const src = t.has_futures === false
+      ? `${kind} chain${exp}, as of ${when(t.ts)}. No public futures feed, so the futures factor is 0.`
+      : `${kind} chain${exp} plus futures, as of ${when(t.ts)}.`;
+    const slow = t.chain === "monthly" ? " Monthly expiries only: monthly OI moves slower during the day, so readings are usually weaker than on a weekly chain." : "";
     trendPanel = h("div", { class: "panel" },
-      h("h2", null, "NIFTY intraday trend scale"),
-      h("p", { class: "sub" }, `Weekly chain plus futures, as of ${when(t.ts)}. Five factors from −1 to +1; zones at ±1 (mild), ±2 (moderate), ±3.5 (strong). A trend score, not a probability.`),
+      h("h2", null, `${cur.symbol} intraday trend scale`),
+      h("p", { class: "sub" }, `${src} Five factors from −1 to +1; zones at ±1 (mild), ±2 (moderate), ±3.5 (strong). A trend score, not a probability.${slow}`),
       h("div", { class: "zone" }, `${t.zone} (${t.score >= 0 ? "+" : ""}${t.score} of ±5)`),
       h("div", { class: "scale" }, h("div", { class: "track" }, Array.from({ length: 7 }, () => h("i"))),
         h("div", { class: "marker", style: `left:${posPct}%` }),
         h("div", { class: "ends" }, h("span", null, "Strong bearish"), h("span", null, "Neutral"), h("span", null, "Strong bullish"))),
       factorTable(t.factors));
+  } else {
+    trendPanel = h("div", { class: "panel" },
+      h("h2", null, `${cur.symbol} intraday trend scale`),
+      h("p", { class: "empty" }, d.trends ? `No trend scale for ${cur.symbol} in this snapshot (no option chain today).` : `The trend scale for ${cur.symbol} appears from the next 15-minute snapshot.`));
   }
 
   // charts for the selected index
@@ -726,7 +738,7 @@ async function viewIndex(app) {
           stat("Futures", lv.fut ? lv.fut.state : "–", lv.fut ? `${pct(lv.fut.fut_pct)}, OI ${lv.fut.coi_total > 0 ? "+" : ""}${compact(lv.fut.coi_total)}` : null, "txt")),
         h("p", { class: "note" }, `${lv.pcr_kind === "weekly" ? "Weekly" : "Monthly"} chain, expiry ${lv.expiry || "–"}.`),
         charts),
-      trendPanel || h("div")),
+      trendPanel),
     (d.problems || []).length ? h("p", { class: "note" }, `Data notes: ${d.problems.slice(0, 3).join("; ")}`) : null);
 }
 function factorTable(factors) {
@@ -1341,6 +1353,13 @@ function viewReadme(app) {
         "Total −5 to +5. LONG at +2.5 or more, SHORT at −2.5 or less; Strong at ±3.5 or beyond. The monthly expiry must be 7+ days away.",
         "Futures levels by two methods. OI walls: stop at the put wall, target at the call wall (reverse for Short), valid when reward is at least 1.5 × risk. Volatility: 5-session expected move from ATM IV; stop 0.6 × that move, target 1.5 × the stop.",
         "The day's official signal is saved at 3:15 pm (signal history).",
+      ])),
+
+    sec("Intraday trend scale (F&O index analysis)", "Every index; follows the card you click",
+      list([
+        "The same five factors as Suggested index trades, read on the index's main chain: weekly for NIFTY and SENSEX, monthly for BANKNIFTY, FINNIFTY and MIDCPNIFTY (monthly expiries only, so readings are usually weaker). Futures build-up uses the last 60 minutes.",
+        "SENSEX has no public futures feed, so its futures factor is 0 (4 factors in play).",
+        "Total −5 to +5. Zones: Mild at ±1, Moderate at ±2, Strong at ±3.5. A trend score, not a probability; no trade is taken from it.",
       ])),
 
     sec("F&O index analysis warnings", null,
