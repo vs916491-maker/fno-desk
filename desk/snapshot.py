@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from . import config, engine, journal, store
+from . import config, engine, ideas, journal, store
 from .sources import BSE, NSE, yahoo_quote
 
 IST = ZoneInfo(config.TZ)
@@ -153,6 +153,8 @@ def main() -> int:
 
     # ------------------------------------------------------------ compute
     cards, signals, warnings, charts, option_chains, trends = [], [], [], {}, {}, {}
+    idea_sets: dict[str, dict] = {"swing": {}, "intraday": {}}
+    vix_q = quotes.get("INDIA VIX")
     for sym, meta in config.INDICES.items():
         futs = futs_all[futs_all.symbol == sym] if not futs_all.empty else pd.DataFrame()
         mon = chains.get((sym, "monthly"))
@@ -182,6 +184,23 @@ def main() -> int:
                 trends[sym] = tr
         except Exception as exc:  # noqa: BLE001
             problems.append(f"{sym} trend scale: {exc}"[:200])
+        # futures / option buying / option selling ideas: swing (monthly chain) and intraday (weekly chain)
+        try:
+            if mon and not snaps_m.empty:
+                r = ideas.build("swing", sym, snaps_m, futs if not futs.empty else None, mon["expiry"], today, vix_q,
+                                sig.get("score"), mon["expiry"], meta["strike_step"], fut_trades=sig.get("trades"))
+                if r:
+                    idea_sets["swing"][sym] = r
+            if sym in config.INTRADAY_INDICES and main and sym in trends and not snaps_main.empty:
+                r = ideas.build("intraday", sym, snaps_main, futs if not futs.empty else None, main["expiry"], today,
+                                vix_q, trends[sym]["score"], mon["expiry"] if mon else main["expiry"],
+                                meta["strike_step"])
+                if r:
+                    r["zone"] = trends[sym]["zone"]
+                    r["factors"] = trends[sym]["factors"]
+                    idea_sets["intraday"][sym] = r
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"{sym} option ideas: {type(exc).__name__}: {exc}"[:200])
         for w in (engine.squeeze_warning(snaps_main, sym), engine.expiry_warning(sym, nearest.get(sym), today)):
             if w:
                 warnings.append({"symbol": sym, "text": w,
@@ -216,11 +235,11 @@ def main() -> int:
 
     trend = trends.get("NIFTY")   # kept as its own key for older pages
 
-    vix = quotes.get("INDIA VIX")
+    vix = vix_q
     dash = {"ts": ts, "cards": cards, "vix": vix, "trend": trend, "trends": trends, "warnings": warnings,
             "charts": charts, "problems": problems}
     db.put_doc("index_dashboard", dash)
-    db.put_doc("swing_signals", {"ts": ts, "signals": signals,
+    db.put_doc("swing_signals", {"ts": ts, "signals": signals, "ideas": idea_sets,
                                  "lot_sizes": lot_sizes(nse)})
     db.put_doc("option_chains", {"ts": ts, "chains": option_chains,
                                  "columns": ["strike", "ce_oi", "ce_coi", "ce_ltp", "ce_iv", "ce_vol",

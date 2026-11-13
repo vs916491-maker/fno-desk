@@ -9,7 +9,7 @@ const sb = LIVE ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnon
   auth: { flowType: "pkce", detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
 }) : null;
 
-const state = { idx: "NIFTY", ocSym: "NIFTY", ocExp: null, ocAll: false, tradeView: "all", session: null };
+const state = { idx: "NIFTY", ocSym: "NIFTY", ocExp: null, ocAll: false, tradeView: "all", session: null, swingMode: "swing" };
 const SYMS = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 let refreshTimer = null;
 
@@ -803,10 +803,47 @@ async function viewChain(app) {
 }
 
 // ------------------------------------------------------------------ tab 4: suggested index trades
+// Swing / Intraday dropdown (14 Nov 2026). Each index: Futures, Option buying, Option selling (defined-risk spreads).
+// Intraday is display only (NIFTY, SENSEX; weekly chain; square off by 3:15 pm).
+const legText = (l) => `${l.action === "BUY" ? "Buy" : "Sell"} ${fmt0(l.strike)} ${l.type} @ ${fmt(l.ltp)}`;
+function ideaTable(list, sym, lots, emptyMsg) {
+  if (!list || !list.length) return h("p", { class: "empty" }, emptyMsg);
+  const lot = lots[sym];
+  const rs = (v) => (isNum(v) && lot ? inr(v * lot) : "–");
+  return h("div", { class: "table-scroll" }, h("table", null,
+    h("thead", null, h("tr", null, ["Idea", "Legs", "Entry", "Stop", "Target", "Max profit / loss", "Breakeven", "Check"].map((c, i) => h("th", { class: i < 2 || i === 7 ? "l" : null }, c)))),
+    h("tbody", null, list.map((i) => {
+      const sell = i.kind === "sell";
+      const failed = (i.checks || []).filter((c) => !c.ok);
+      return h("tr", { style: "cursor:default" },
+        h("td", { class: "l name" }, i.name, h("small", null, i.why)),
+        h("td", { class: "l" }, (i.legs || []).map((l) => h("div", null, legText(l)))),
+        h("td", null, fmt(i.net), h("small", null, i.net_kind)),
+        h("td", null, fmt(i.stop), h("small", null, sell ? "cost to close" : `premium (−${Math.round(100 - (i.stop / i.net) * 100)}%)`)),
+        h("td", null, fmt(i.target), h("small", null, sell ? "cost to close" : "premium")),
+        h("td", null, `${isNum(i.max_profit) ? rs(i.max_profit) : "Open"} / ${rs(i.max_loss)}`, h("small", null, lot ? `per lot of ${lot}` : "per unit"),
+          isNum(i.rr) ? h("small", null, `R/R ${i.rr.toFixed(2)}`) : null),
+        h("td", null, (i.breakeven || []).map((b) => h("div", null, fmt0(b)))),
+        h("td", { class: "l" }, h("span", { class: i.ok ? "pos" : "neg" }, i.ok ? "Passes" : "Fails"),
+          failed.map((c) => h("small", { class: "neg" }, c.text)),
+          h("details", null, h("summary", { class: "note", style: "cursor:pointer" }, "All checks"),
+            (i.checks || []).map((c) => h("div", { class: "note" }, `${c.ok ? "✓" : "✗"} ${c.text}`)),
+            h("div", { class: "note", style: "margin-top:4px" }, i.exit))));
+    }))));
+}
+
 async function viewSwing(app) {
   const [d, hist, events] = await Promise.all([doc("swing_signals"), swingHistory(), swingEvents()]);
   if (!d) return render(app, pageHead("Suggested index trades", null), h("p", { class: "empty" }, "No snapshot yet."));
+  const mode = state.swingMode === "intraday" ? "intraday" : "swing";
   const lots = d.lot_sizes || {};
+  let sets = (d.ideas || {})[mode] || {};
+  if (mode === "swing" && !Object.keys(sets).length && (d.signals || []).length) {   // snapshot from before the option ideas existed
+    sets = Object.fromEntries((d.signals || []).filter((x) => x.levels && isNum(x.spot)).map((x) => [x.symbol, {
+      symbol: x.symbol, mode: "swing", bias: x.direction === "LONG" || x.direction === "SHORT" ? x.direction : "NEUTRAL", score: x.score,
+      threshold: x.threshold, expiry: x.expiry, dte: x.dte, spot: x.spot, levels: x.levels, futures: x.trades || [], buying: [], selling: [],
+      vol: {}, notes: ["Option buying and selling ideas appear after the next 15-minute snapshot."] }]));
+  }
   const watch = (sig, t) => watchDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
     entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lot_size: lots[sig.symbol],
     expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal", signal_time: sig.ts });
@@ -814,31 +851,64 @@ async function viewSwing(app) {
     entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lots: 1, lot_size: lots[sig.symbol],
     expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal",
     notes: `${sig.strength} ${sig.direction} ${sig.score >= 0 ? "+" : ""}${sig.score}; ${sig.levels.state || ""}` }, () => { location.hash = "#/trades"; });
-  const cards = (d.signals || []).map((sig) => {
-    const lv = sig.levels || {};
-    const trades = sig.trades || [];
+
+  const modeBar = h("div", { class: "filters", style: "padding-top:4px" },
+    h("span", { class: "filter-label" }, "View"),
+    h("select", { "aria-label": "Swing or Intraday", onchange: (e) => { state.swingMode = e.target.value; route(); } },
+      h("option", { value: "swing", selected: mode === "swing" || null }, "Swing (up to 5 sessions)"),
+      h("option", { value: "intraday", selected: mode === "intraday" || null }, "Intraday (square off by 3:15 pm)")));
+
+  const futuresTable = (sig, trades, buttons) => (trades && trades.length ? h("div", { class: "table-scroll" }, h("table", null,
+    h("thead", null, h("tr", null, ["Futures trade", "Entry", "Stop", "Target", "R/R", "Lot", "Check", buttons ? "" : null].filter((c) => c !== null).map((c, i) => h("th", { class: i === 0 || i === 6 ? "l" : null }, c)))),
+    h("tbody", null, trades.map((t) => h("tr", { style: "cursor:default" },
+      h("td", { class: "l name" }, t.method, h("small", null, t.note)),
+      h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
+      h("td", null, isNum(t.rr) ? t.rr.toFixed(2) : "–"), h("td", null, lots[sig.symbol] || "–"),
+      h("td", { class: `l ${t.ok ? "pos" : "neg"}` }, t.ok ? "Passes" : "Fails"),
+      buttons ? h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(sig, t) }, "I took this trade"),
+        h("button", { class: "btn small", type: "button", onclick: () => watch(sig, t) }, "Watchlist"))) : null))))) : h("p", { class: "empty" }, "No futures idea: no clear direction, or no futures feed."));
+
+  const volStats = (id) => {
+    const v = id.vol || {};
+    return [stat("India VIX", isNum(v.vix) ? v.vix.toFixed(2) : "–", isNum(v.vix_pct) ? `${pct(v.vix_pct)} today, ${v.state}` : v.state, null),
+      stat("ATM IV", isNum(v.atm_iv) ? `${v.atm_iv.toFixed(1)}%` : "–", isNum(id.expected_move) ? `${id.mode === "swing" ? "5-session" : "1-session"} move ±${fmt0(id.expected_move)}` : null)];
+  };
+  const subHead = (t, p) => h("div", { class: "section-head", style: "margin:14px 0 6px" }, h("h3", { style: "margin:0;font-size:15px" }, t), p ? h("p", null, p) : null);
+
+  const section = (sig, id) => {
+    const lv = id.levels || {};
+    const swing = id.mode === "swing";
     return h("div", { class: "panel", style: "margin-bottom:14px" },
       h("div", { class: "section-head", style: "margin:0 0 8px" },
-        h("h2", null, sig.symbol, " ", chartLink(sig.symbol, "fut", "60"), " ", sideTag(sig.direction), sig.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${sig.strength}`) : null),
-        h("p", null, isNum(sig.score) ? `Score ${sig.score >= 0 ? "+" : ""}${sig.score} of ±5 (needs ±${sig.threshold}); monthly expiry ${sig.expiry} (${sig.dte}d)` : "")),
+        h("h2", null, id.symbol, " ", chartLink(id.symbol, "fut", "60"), " ", sideTag(id.bias === "NEUTRAL" ? "NO TRADE" : id.bias),
+          swing && sig && sig.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${sig.strength}`) : null,
+          !swing && id.zone ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${id.zone}`) : null),
+        h("p", null, `${swing ? "Swing score" : "Trend score"} ${id.score >= 0 ? "+" : ""}${id.score} of ±5 (needs ±${id.threshold}); ${swing ? "monthly" : "weekly"} expiry ${id.expiry} (${id.dte}d)`)),
       h("div", { class: "stats" },
-        stat("Spot", fmt(sig.spot)), stat("Support / resistance", `${fmt0(lv.support)} / ${fmt0(lv.resistance)}`),
+        stat("Spot", fmt(id.spot)), stat("Support / resistance", `${fmt0(lv.support)} / ${fmt0(lv.resistance)}`),
         stat("PCR", isNum(lv.pcr) ? lv.pcr.toFixed(2) : "–", `Max pain ${fmt0(lv.max_pain)}`),
         stat("Futures", lv.state || "No data", lv.fut_ltp ? `${fmt(lv.fut_ltp)} (${pct(lv.fut_pct)})` : null, "txt"),
-        stat("ATM IV", isNum(lv.atm_iv) ? `${lv.atm_iv.toFixed(1)}%` : "–")),
-      lv.interpretation ? h("p", { class: "intro" }, lv.interpretation) : null,
-      (sig.warnings || []).map((w) => h("div", { class: "banner" }, w)),
-      trades.length ? h("div", { class: "table-scroll" }, h("table", null,
-        h("thead", null, h("tr", null, ["Futures trade", "Entry", "Stop", "Target", "R/R", "Lot", "Check", ""].map((c, i) => h("th", { class: i === 0 || i === 6 ? "l" : null }, c)))),
-        h("tbody", null, trades.map((t) => h("tr", { style: "cursor:default" },
-          h("td", { class: "l name" }, t.method, h("small", null, t.note)),
-          h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
-          h("td", null, isNum(t.rr) ? t.rr.toFixed(2) : "–"), h("td", null, lots[sig.symbol] || "–"),
-          h("td", { class: `l ${t.ok ? "pos" : "neg"}` }, t.ok ? "Passes" : "Fails"),
-          h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(sig, t) }, "I took this trade"),
-            h("button", { class: "btn small", type: "button", onclick: () => watch(sig, t) }, "Watchlist")))))))) : null,
-      h("details", null, h("summary", { class: "note", style: "cursor:pointer;margin-top:10px" }, "What makes up the score"), factorTable(sig.factors)));
-  });
+        volStats(id)),
+      h("p", { class: "note", style: "margin:8px 0 0" }, (id.vol && id.vol.note) || ""),
+      swing && sig && sig.levels && sig.levels.interpretation ? h("p", { class: "intro" }, sig.levels.interpretation) : null,
+      (swing && sig ? sig.warnings || [] : []).map((w) => h("div", { class: "banner" }, w)),
+      (id.notes || []).map((w) => h("div", { class: "banner" }, w)),
+      subHead("Futures", swing ? "Buy or sell the index future; stop and target two ways" : "Display only; square off by 3:15 pm"),
+      futuresTable(sig || { symbol: id.symbol }, id.futures, swing),
+      subHead("Option buying", "Long ATM call or put; needs a direction"),
+      ideaTable(id.buying, id.symbol, lots, id.bias === "NEUTRAL" ? "No direction, so no option-buying idea." : "No idea: option prices missing."),
+      subHead("Option selling", "Defined-risk spreads only: bull put (bullish), bear call (bearish), iron condor (no direction)"),
+      ideaTable(id.selling, id.symbol, lots, "No idea: option prices missing."),
+      h("details", null, h("summary", { class: "note", style: "cursor:pointer;margin-top:10px" }, "What makes up the score"),
+        factorTable(swing && sig ? sig.factors : id.factors)));
+  };
+
+  const sigBy = Object.fromEntries((d.signals || []).map((x) => [x.symbol, x]));
+  const order = Object.keys(sets);
+  const cards = order.length ? order.map((sym) => section(sigBy[sym], sets[sym]))
+    : [h("p", { class: "empty" }, mode === "intraday" ? "No intraday view yet: it needs a few 15-minute snapshots on the weekly chain."
+      : "No swing ideas yet: they appear after the first chain snapshot of the day.")];
+
   const histTable = hist.length ? h("table", null,
     h("thead", null, h("tr", null, ["Day", "Index", "Signal", "Score", "Spot at 3:15"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
     h("tbody", null, hist.map((r) => h("tr", { style: "cursor:default" }, h("td", { class: "l" }, dayLabel(r.day)), h("td", { class: "l" }, r.symbol),
@@ -853,13 +923,18 @@ async function viewSwing(app) {
         h("td", null, isNum(e.score) ? `${e.score > 0 ? "+" : ""}${e.score}` : "–"), h("td", null, fmt(e.spot)),
         h("td", null, t ? fmt(t.entry) : "–"), h("td", null, t ? fmt(t.stop) : "–"), h("td", null, t ? fmt(t.target) : "–"));
     }))) : null;
-  render(app, 
+
+  const intro = mode === "swing"
+    ? "Score = OI shift (ATM ±2, last 60 min) + PCR level + PCR slope + change-in-OI PCR + futures build-up, each −1 to +1. Long at +2.5 or more, short at −2.5 or less. Each index shows Futures, Option buying and Option selling ideas built from the monthly chain (OI walls, IV), futures OI and India VIX. A setup shows here, and in the log below, at the first 15-minute update after its score crosses ±2.5. The day's closing signal is also saved at 3:15 pm."
+    : "Intraday view for NIFTY and SENSEX on the weekly chain. Direction comes from the intraday trend scale (Moderate, ±2 or more); below that there is no direction and only a range-bound credit idea. Prices use the 1-session expected move from ATM IV. Display only: nothing is logged or added to My Trades; square off by 3:15 pm.";
+  render(app,
     pageHead("Suggested index trades", `Live, updated every 15 minutes; last update ${when(d.ts)}`),
-    h("p", { class: "intro" }, "Score = OI shift (ATM ±2, last 60 min) + PCR level + PCR slope + change-in-OI PCR + futures build-up, each −1 to +1. Long at +2.5 or more, short at −2.5 or less. Each signal shows a futures trade two ways: OI walls (stop and target at the put and call walls, needs R/R 1.5) and Volatility (5-day expected move from ATM IV: stop 0.6×, target 1.5× the stop, skipped if a big OI wall blocks the target). A setup shows here, and in the log below, at the first 15-minute update after its score crosses ±2.5. The day's closing signal is also saved at 3:15 pm."),
+    modeBar,
+    h("p", { class: "intro" }, intro),
     cards,
-    h("section", null, h("div", { class: "section-head" }, h("h2", null, "Setups as they formed"), h("p", null, "Last 8 days; levels use the volatility method at the time")),
-      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing setup has formed yet.")),
-    histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
+    mode === "swing" ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Setups as they formed"), h("p", null, "Last 8 days; levels use the volatility method at the time")),
+      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing setup has formed yet.")) : null,
+    mode === "swing" && histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
 }
 
 // ------------------------------------------------------------------ tab 5: my trades
@@ -1341,7 +1416,7 @@ function viewReadme(app) {
         "R = result ÷ risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
       ])),
 
-    sec("Suggested index trades", "Swing only: monthly chain, up to 5 sessions",
+    sec("Suggested index trades", "Swing or Intraday (dropdown at the top); Futures, Option buying, Option selling",
       tbl(["Factor", "Score", "Reading"], [
         ["OI shift, ATM ±2 strikes", "−1 to +1", "Change over the last 60 minutes. Put writing leads: +1 with call unwinding at resistance, +0.5 without. Call writing leads: −1 / −0.5."],
         ["PCR (total OI)", "−1 to +1", "Above 1.20: +1 (above 1.60: +0.5, crowded). Below 0.80: −1 (below 0.50: −0.5). 0.85–1.15: neutral."],
@@ -1353,6 +1428,10 @@ function viewReadme(app) {
         "Total −5 to +5. LONG at +2.5 or more, SHORT at −2.5 or less; Strong at ±3.5 or beyond. The monthly expiry must be 7+ days away.",
         "Futures levels by two methods. OI walls: stop at the put wall, target at the call wall (reverse for Short), valid when reward is at least 1.5 × risk. Volatility: 5-session expected move from ATM IV; stop 0.6 × that move, target 1.5 × the stop.",
         "The day's official signal is saved at 3:15 pm (signal history).",
+        "Intraday view (14 Nov 2026): NIFTY and SENSEX only, weekly chain, direction from the intraday trend scale (Moderate, ±2 or more; below that no direction). Display only: nothing is logged or added to My Trades. Square off by 3:15 pm. Futures use the 1-session expected move (stop 0.5×, target 1.5× the stop).",
+        "Option buying: a long ATM call (bullish) or put (bearish). Stop at 30% of the premium for swing, 25% for intraday; the target premium assumes the index reaches the volatility target and the option moves half as much (delta 0.5). Fails when India VIX is 18 or more (premium expensive), a big OI wall sits before the target, futures do not confirm, or a swing has under 7 days to expiry.",
+        "Option selling (defined-risk spreads only): bull put spread when bullish, bear call spread when bearish, iron condor when there is no direction. The short strike is at the OI wall (put wall below, call wall above) or 0.8 expected moves from spot, whichever is farther; the hedge leg is 4 strikes beyond for swing, 2 for intraday. Fails when the credit is under 20% of the width, India VIX is 13 or less (thin premium) or rising 3% or more in the day, futures do not confirm, PCR is outside 0.85–1.15 for a condor, or it is expiry day (intraday). Take profit at 50% of the credit, cut at a cost of 2× the credit.",
+        "These thresholds are starting values and are untested against past results. They are all in desk/config.py (VIX_*, SELL_*, BUY_*, INTRADAY_*).",
       ])),
 
     sec("Intraday trend scale (F&O index analysis)", "Every index; follows the card you click",

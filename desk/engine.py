@@ -335,8 +335,13 @@ def swing_signal(symbol: str, snaps: pd.DataFrame, futs: pd.DataFrame | None, ex
     return sig
 
 
-def swing_trades(sig: dict) -> list[dict]:
-    """Futures trade levels by two methods: OI walls, and the 5-day volatility move."""
+def swing_trades(sig: dict, days: float | None = None, stop_em: float | None = None,
+                 target_r: float | None = None) -> list[dict]:
+    """Futures trade levels by two methods: OI walls, and the volatility move (5 sessions for
+    swing; the intraday view passes 1 session and its own stop / target multiples)."""
+    days = days or config.SWING_DAYS
+    stop_em = stop_em or config.SWING_STOP_EM
+    target_r = target_r or config.SWING_TARGET_R
     d = sig["direction"]
     if d not in ("LONG", "SHORT"):
         return []
@@ -358,16 +363,16 @@ def swing_trades(sig: dict) -> list[dict]:
                              + ("" if rr and rr >= config.SWING_MIN_RR else f"; R/R below {config.SWING_MIN_RR}"))})
     iv = lv.get("atm_iv")
     if iv:
-        em = spot * iv / 100 * math.sqrt(config.SWING_DAYS / 365)
-        stop_d = config.SWING_STOP_EM * em
-        tgt_d = config.SWING_TARGET_R * stop_d
+        em = spot * iv / 100 * math.sqrt(days / 365)
+        stop_d = stop_em * em
+        tgt_d = target_r * stop_d
         tgt_spot = spot + side * tgt_d
         wall = r if side > 0 else s
         blocked = bool(wall and ((side > 0 and spot < wall < tgt_spot) or (side < 0 and tgt_spot < wall < spot)))
         out.append({"method": "Volatility", "entry": fut, "stop": fut - side * stop_d, "target": fut + side * tgt_d,
-                    "stop_spot": spot - side * stop_d, "target_spot": tgt_spot, "rr": config.SWING_TARGET_R,
+                    "stop_spot": spot - side * stop_d, "target_spot": tgt_spot, "rr": target_r,
                     "ok": not blocked, "expected_move": em, "iv": iv,
-                    "note": (f"5-day expected move ±{em:,.0f} at IV {iv:.1f}%"
+                    "note": (f"{days:g}-day expected move ±{em:,.0f} at IV {iv:.1f}%"
                              + (f"; the {'call' if side > 0 else 'put'} wall at {wall:,.0f} sits before the target"
                                 if blocked else ""))})
     return out

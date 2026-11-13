@@ -12,7 +12,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 | F&O stock screener (`#/stocks`) | Two views (6 Nov 2026): **Price Action** (default, chart only) and **Price+OI** (chart + futures OI, "Waiting for OI" list). Hourly base breakouts by 50 EMA state (`desk/setups.py`); own Top 5 per view; all ideas of the day kept by run (doc `stock_screener_day`); "I took this trade"; Run scanner button. Old 50 EMA cross rules run in the background, logged only | after each hourly candle (~:20 past, 10:20–15:20, and 15:35) |
 | F&O index analysis (`#/index`) | Index cards, warnings (squeeze, expiry), intraday trend scale for the clicked index (all 5 since 10 Nov 2026; doc key `trends`), hourly PCR (monthly + weekly), futures OI | every 15 min, 09:15–15:30 |
 | Option chain (`#/chain`) | NIFTY, SENSEX, BANKNIFTY, FINNIFTY, MIDCPNIFTY: OI, change in OI, LTP, IV, PCR, max pain, walls | every 15 min |
-| Suggested index trades (`#/swing`) | Swing only (monthly chain, up to 5 sessions), 5-factor score, futures trade by OI walls / volatility; 3:15 pm signal history | every 15 min |
+| Suggested index trades (`#/swing`) | Dropdown at the top: **Swing** (default; monthly chain, up to 5 sessions, all 5 indices, 5-factor score) or **Intraday** (14 Nov 2026; NIFTY + SENSEX, weekly chain, trend scale, display only). Each index: Futures (OI walls / volatility), Option buying (long ATM CE/PE), Option selling (defined-risk spreads: bull put / bear call / iron condor) from chain OI + IV, futures OI and India VIX (`desk/ideas.py`, doc `swing_signals.ideas`); swing keeps the setup log and 3:15 pm signal history | every 15 min |
 | Watchlist (`#/watch`) | F&O Desk's own watchlist (Supabase table `watchlist`; Sector Strength and Fundamentals Desk share a different one, `fd_watchlist`) | — |
 | My Trades (`#/trades`) | Stock trades (% after costs), index trades as futures (₹ P&L); auto-close at stop, target or after 5 sessions | with each job |
 | Readme (`#/readme`) | Current rules and scores in plain words (static text in `viewReadme` in `site/app.js`: **update it when a rule changes**) | — |
@@ -20,6 +20,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 
 ## Main files
 - `desk/snapshot.py` – index chains (NSE v3, BSE for SENSEX), index futures, swing signals, warnings
+- `desk/ideas.py` – Futures / Option buying / Option selling ideas for Suggested index trades (swing and intraday)
 - `desk/screener.py` – Yahoo hourly candles, both screener views (`base_breakouts`), old 50 EMA cross rules (background), Top 5; `--dry` / `--at 2026-11-06T14:20` = read-only test (workflow `screener-test.yml`)
 - `desk/setups.py` – base breakout rules: EMA state, base, stop, signal-hour OI vs usual, scores
 - `desk/signals.py` – signal-hour OI (hourly OI snapshot of all F&O stocks, doc `stock_oi_snaps`), warnings, proposed score (`score_v2`, logged only), signal log + results
@@ -43,7 +44,7 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 - Repo secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
 
 ## Rules / decisions to keep
-- Index trades: swing only, no automatic paper trades.
+- Index trades: swing only, no automatic paper trades. Exception (14 Nov 2026, his choice): the Intraday view (NIFTY + SENSEX) and the option buying / selling ideas are display only: no logging, no My Trades, no Track record. Selling is defined-risk spreads only (no naked strangles). All numbers `INTRADAY_*`, `VIX_*`, `BUY_*`, `SELL_*` in `desk/config.py`; they are untested starting values.
 - Intraday trend scale (10 Nov 2026, his choice): computed for every index on its main chain (weekly NIFTY/SENSEX, monthly BANKNIFTY/FINNIFTY/MIDCPNIFTY), same 5 factors and zones; SENSEX scores futures 0 (no feed). `index_dashboard.trends[sym]`; `trend` key kept = NIFTY for old pages. Panel follows the clicked card.
 - Closed trades are locked: no editing, and no Delete button on the site (open trades can still be deleted). Exception (5 Nov 2026, both sites): a trade closed by hand can be edited or reopened until the next weekday 19:40 IST (`closed_at` set by a trigger, `trade_fix_until()`, RLS in `supabase/011_fix_closed_trades.sql`); trades closed by the jobs lock at once.
 - Trade details kept 3 months; monthly summaries kept permanently (`trade_months`).

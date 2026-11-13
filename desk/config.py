@@ -68,6 +68,26 @@ SWING_STOP_EM = 0.6               # stop = 0.6 x expected move
 SWING_TARGET_R = 1.5              # target = 1.5 x stop
 SWING_MAX_SESSIONS = 5            # journal: close index trades after 5 sessions
 
+# ------------------------------------------------------------------ option ideas (14 Nov 2026, desk/ideas.py)
+# Suggested index trades has a Swing / Intraday dropdown; each index gets Futures, Option buying and
+# Option selling (defined-risk spreads) ideas from the chain (OI walls, IV), futures OI and India VIX.
+# Intraday is display only (no logging, no My Trades), square-off by 15:15.
+INTRADAY_INDICES = ["NIFTY", "SENSEX"]   # indices with a weekly chain
+INTRADAY_MIN_SCORE = 2.0          # trend scale (+/-5): Moderate or stronger counts as a direction
+INTRADAY_DAYS = 1                 # expected move over 1 session
+INTRADAY_STOP_EM = 0.5            # futures / option-buy stop = 0.5 x the 1-day expected move
+INTRADAY_TARGET_R = 1.5           # target = 1.5 x stop
+INTRADAY_EXIT_TIME = "15:15"
+VIX_LOW, VIX_HIGH = 13.0, 18.0    # India VIX: below = options cheap, above = options rich
+VIX_RISE_PCT = 3.0                # VIX up this much (%) today = rising
+BUY_STOP_PCT = {"swing": 30.0, "intraday": 25.0}   # option buying: stop = this % of the premium paid
+BUY_DELTA = 0.5                   # ATM option moves about half the index move (used for the target premium)
+SELL_WIDTH_STEPS = {"swing": 4, "intraday": 2}     # spread width in strike steps
+SELL_EM_MULT = 0.8                # short strike at the OI wall or 0.8 expected move away, whichever is farther
+SELL_MIN_CREDIT = 0.20            # credit at least 20% of the spread width
+SELL_STOP_MULT = 2.0              # close the spread if it costs 2x the credit received to close
+SELL_PROFIT_EXIT = 0.5            # take profit at 50% of the credit
+
 # ------------------------------------------------------------------ NIFTY intraday trend scale (+/-5)
 TREND_ZONES = [(3.5, "Strong"), (2.0, "Moderate"), (1.0, "Mild")]
 

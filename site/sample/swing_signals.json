@@ -450,5 +450,868 @@
   "BANKNIFTY": 30,
   "FINNIFTY": 60,
   "MIDCPNIFTY": 120
+ },
+ "ideas": {
+  "swing": {
+   "NIFTY": {
+    "symbol": "NIFTY",
+    "mode": "swing",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 22534.95,
+    "bias": "LONG",
+    "score": 3.0,
+    "threshold": 2.5,
+    "expiry": "2026-11-23",
+    "dte": 31,
+    "expected_move": 422.6620031011926,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 16.025,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 22000.0,
+     "resistance": 23000.0,
+     "pcr": 1.081,
+     "max_pain": 23000.0,
+     "atm_iv": 16.025,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 50.0
+    },
+    "futures": [
+     {
+      "method": "OI walls",
+      "entry": 22534.95,
+      "stop": 22000.0,
+      "target": 23000.0,
+      "stop_spot": 22000.0,
+      "target_spot": 23000.0,
+      "rr": 0.8693335825778085,
+      "ok": false,
+      "note": "Stop at the put wall 22,000, target at the call wall 23,000; R/R below 1.5"
+     },
+     {
+      "method": "Volatility",
+      "entry": 22534.95,
+      "stop": 22323.618998449405,
+      "target": 22851.946502325896,
+      "stop_spot": 22323.618998449405,
+      "target_spot": 22851.946502325896,
+      "rr": 1.5,
+      "ok": true,
+      "expected_move": 422.6620031011926,
+      "iv": 16.025,
+      "note": "5-day expected move \u00b1423 at IV 16.0%"
+     }
+    ],
+    "buying": [
+     {
+      "name": "Buy 22,550 CE",
+      "kind": "buy",
+      "legs": [
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 22550.0,
+        "ltp": 476.7
+       }
+      ],
+      "net": 476.7,
+      "net_kind": "debit",
+      "stop": 333.69,
+      "target": 666.8979013955367,
+      "max_loss": 476.7,
+      "max_profit": null,
+      "rr": 1.3299622501610846,
+      "breakeven": [
+       23026.7
+      ],
+      "target_spot": 22915.345802791075,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is reasonable",
+        "ok": true
+       },
+       {
+        "text": "No big OI wall before the target",
+        "ok": true
+       }
+      ],
+      "why": "Bullish bias; ATM option. Stop at 30% of the premium; target premium assumes the index reaches about 22,915 (delta 0.5).",
+      "exit": "Exit at the stop or target, or after 5 sessions; do not hold into expiry week."
+     }
+    ],
+    "selling": [
+     {
+      "name": "Bull put spread",
+      "kind": "sell",
+      "legs": [
+       {
+        "action": "SELL",
+        "type": "PE",
+        "strike": 22000.0,
+        "ltp": 192.95
+       },
+       {
+        "action": "BUY",
+        "type": "PE",
+        "strike": 21800.0,
+        "ltp": 150.95
+       }
+      ],
+      "net": 42.0,
+      "net_kind": "credit",
+      "stop": 84.0,
+      "target": 21.0,
+      "max_loss": 158.0,
+      "max_profit": 42.0,
+      "rr": 0.26582278481012656,
+      "breakeven": [
+       21958.0
+      ],
+      "width": 200.0,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is fair",
+        "ok": true
+       },
+       {
+        "text": "VIX is not spiking",
+        "ok": true
+       },
+       {
+        "text": "Credit 42.0 is 21% of the 200-point width (needs 20%+)",
+        "ok": true
+       }
+      ],
+      "why": "Defined risk: short 22,000 PE at the put OI wall; hedge 200 points away.",
+      "exit": "Take profit when it costs 21.0 to close (50% of the credit); cut the loss at 84.0. Close if spot closes beyond the short strike, and before expiry week."
+     }
+    ],
+    "notes": []
+   },
+   "SENSEX": {
+    "symbol": "SENSEX",
+    "mode": "swing",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 72956.94,
+    "bias": "SHORT",
+    "score": -2.8,
+    "threshold": 2.5,
+    "expiry": "2026-11-26",
+    "dte": 34,
+    "expected_move": 1367.5150771561105,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 16.015,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 70000.0,
+     "resistance": 74000.0,
+     "pcr": 1.267,
+     "max_pain": 74000.0,
+     "atm_iv": 16.015,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 100.0
+    },
+    "futures": [
+     {
+      "method": "OI walls",
+      "entry": 72956.94,
+      "stop": 74000.0,
+      "target": 70000.0,
+      "stop_spot": 74000.0,
+      "target_spot": 70000.0,
+      "rr": 2.8348704772496394,
+      "ok": true,
+      "note": "Stop at the call wall 74,000, target at the put wall 70,000"
+     },
+     {
+      "method": "Volatility",
+      "entry": 72956.94,
+      "stop": 73640.69753857805,
+      "target": 71931.30369213292,
+      "stop_spot": 73640.69753857805,
+      "target_spot": 71931.30369213292,
+      "rr": 1.5,
+      "ok": true,
+      "expected_move": 1367.5150771561105,
+      "iv": 16.015,
+      "note": "5-day expected move \u00b11,368 at IV 16.0%"
+     }
+    ],
+    "buying": [
+     {
+      "name": "Buy 73,000 PE",
+      "kind": "buy",
+      "legs": [
+       {
+        "action": "BUY",
+        "type": "PE",
+        "strike": 73000.0,
+        "ltp": 1080.0
+       }
+      ],
+      "net": 1080.0,
+      "net_kind": "debit",
+      "stop": 756.0,
+      "target": 1695.3817847202497,
+      "max_loss": 1080.0,
+      "max_profit": null,
+      "rr": 1.8993264960501535,
+      "breakeven": [
+       71920.0
+      ],
+      "target_spot": 71726.1764305595,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is reasonable",
+        "ok": true
+       },
+       {
+        "text": "No big OI wall before the target",
+        "ok": true
+       }
+      ],
+      "why": "Bearish bias; ATM option. Stop at 30% of the premium; target premium assumes the index reaches about 71,726 (delta 0.5).",
+      "exit": "Exit at the stop or target, or after 5 sessions; do not hold into expiry week."
+     }
+    ],
+    "selling": [
+     {
+      "name": "Bear call spread",
+      "kind": "sell",
+      "legs": [
+       {
+        "action": "SELL",
+        "type": "CE",
+        "strike": 74100.0,
+        "ltp": 1212.95
+       },
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 74500.0,
+        "ltp": 963.3
+       }
+      ],
+      "net": 249.6500000000001,
+      "net_kind": "credit",
+      "stop": 400.0,
+      "target": 124.82500000000005,
+      "max_loss": 150.3499999999999,
+      "max_profit": 249.6500000000001,
+      "rr": 1.6604589291652827,
+      "breakeven": [
+       74349.65
+      ],
+      "width": 400.0,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is fair",
+        "ok": true
+       },
+       {
+        "text": "VIX is not spiking",
+        "ok": true
+       },
+       {
+        "text": "Credit 249.7 is 62% of the 400-point width (needs 20%+)",
+        "ok": true
+       }
+      ],
+      "why": "Defined risk: short 74,100 CE at the expected-move strike (wall is closer); hedge 400 points away.",
+      "exit": "Take profit when it costs 124.8 to close (50% of the credit); cut the loss at 400.0. Close if spot closes beyond the short strike, and before expiry week."
+     }
+    ],
+    "notes": []
+   },
+   "BANKNIFTY": {
+    "symbol": "BANKNIFTY",
+    "mode": "swing",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 54271.75,
+    "bias": "NEUTRAL",
+    "score": 0.5,
+    "threshold": 2.5,
+    "expiry": "2026-11-23",
+    "dte": 31,
+    "expected_move": 1043.9557821341418,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 16.435000000000002,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 52000.0,
+     "resistance": 57000.0,
+     "pcr": 0.866,
+     "max_pain": 56300.0,
+     "atm_iv": 16.435000000000002,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 100.0
+    },
+    "futures": [],
+    "buying": [],
+    "selling": [
+     {
+      "name": "Iron condor",
+      "kind": "sell",
+      "legs": [
+       {
+        "action": "SELL",
+        "type": "PE",
+        "strike": 52000.0,
+        "ltp": 274.8
+       },
+       {
+        "action": "BUY",
+        "type": "PE",
+        "strike": 51600.0,
+        "ltp": 216.55
+       },
+       {
+        "action": "SELL",
+        "type": "CE",
+        "strike": 57000.0,
+        "ltp": 188.2
+       },
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 57400.0,
+        "ltp": 133.7
+       }
+      ],
+      "net": 112.75,
+      "net_kind": "credit",
+      "stop": 225.5,
+      "target": 56.375,
+      "max_loss": 287.25,
+      "max_profit": 112.75,
+      "rr": 0.39251523063533506,
+      "breakeven": [
+       51887.25,
+       57112.75
+      ],
+      "width": 400.0,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is fair",
+        "ok": true
+       },
+       {
+        "text": "VIX is not spiking",
+        "ok": true
+       },
+       {
+        "text": "Credit 112.8 is 28% of the 400-point width (needs 20%+)",
+        "ok": true
+       },
+       {
+        "text": "PCR 0.87 is in the range-bound zone",
+        "ok": true
+       }
+      ],
+      "why": "Defined risk: short 52,000 PE at the put OI wall; short 57,000 CE at the call OI wall; hedge 400 points away.",
+      "exit": "Take profit when it costs 56.4 to close (50% of the credit); cut the loss at 225.5. Close if spot closes beyond the short strike, and before expiry week."
+     }
+    ],
+    "notes": [
+     "No clear direction: no futures or option-buying idea; a range-bound credit idea is shown instead."
+    ]
+   },
+   "FINNIFTY": {
+    "symbol": "FINNIFTY",
+    "mode": "swing",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 24386.6,
+    "bias": "SHORT",
+    "score": -3.1,
+    "threshold": 2.5,
+    "expiry": "2026-11-23",
+    "dte": 31,
+    "expected_move": 451.5400782817215,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 15.82,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 24200.0,
+     "resistance": 25000.0,
+     "pcr": 0.588,
+     "max_pain": 24500.0,
+     "atm_iv": 15.82,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 100.0
+    },
+    "futures": [
+     {
+      "method": "OI walls",
+      "entry": 24386.6,
+      "stop": 25000.0,
+      "target": 24200.0,
+      "stop_spot": 25000.0,
+      "target_spot": 24200.0,
+      "rr": 0.3042060645581971,
+      "ok": false,
+      "note": "Stop at the call wall 25,000, target at the put wall 24,200; R/R below 1.5"
+     },
+     {
+      "method": "Volatility",
+      "entry": 24386.6,
+      "stop": 24612.37003914086,
+      "target": 24047.944941288708,
+      "stop_spot": 24612.37003914086,
+      "target_spot": 24047.944941288708,
+      "rr": 1.5,
+      "ok": false,
+      "expected_move": 451.5400782817215,
+      "iv": 15.82,
+      "note": "5-day expected move \u00b1452 at IV 15.8%; the put wall at 24,200 sits before the target"
+     }
+    ],
+    "buying": [],
+    "selling": [],
+    "notes": []
+   },
+   "MIDCPNIFTY": {
+    "symbol": "MIDCPNIFTY",
+    "mode": "swing",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 12996.7,
+    "bias": "LONG",
+    "score": 2.6,
+    "threshold": 2.5,
+    "expiry": "2026-11-23",
+    "dte": 31,
+    "expected_move": 334.5766516741809,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 21.995,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 12000.0,
+     "resistance": 14000.0,
+     "pcr": 1.093,
+     "max_pain": 13500.0,
+     "atm_iv": 21.995,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 25.0
+    },
+    "futures": [
+     {
+      "method": "OI walls",
+      "entry": 12996.7,
+      "stop": 12000.0,
+      "target": 14000.0,
+      "stop_spot": 12000.0,
+      "target_spot": 14000.0,
+      "rr": 1.006621852111968,
+      "ok": false,
+      "note": "Stop at the put wall 12,000, target at the call wall 14,000; R/R below 1.5"
+     },
+     {
+      "method": "Volatility",
+      "entry": 12996.7,
+      "stop": 12829.41167416291,
+      "target": 13247.632488755637,
+      "stop_spot": 12829.41167416291,
+      "target_spot": 13247.632488755637,
+      "rr": 1.5,
+      "ok": true,
+      "expected_move": 334.5766516741809,
+      "iv": 21.995,
+      "note": "5-day expected move \u00b1335 at IV 22.0%"
+     }
+    ],
+    "buying": [
+     {
+      "name": "Buy 13,000 CE",
+      "kind": "buy",
+      "legs": [
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 13000.0,
+        "ltp": 356.4
+       }
+      ],
+      "net": 356.4,
+      "net_kind": "debit",
+      "stop": 249.47999999999996,
+      "target": 506.95949325338137,
+      "max_loss": 356.4,
+      "max_profit": null,
+      "rr": 1.4081508908845994,
+      "breakeven": [
+       13356.4
+      ],
+      "target_spot": 13297.818986506763,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is reasonable",
+        "ok": true
+       },
+       {
+        "text": "No big OI wall before the target",
+        "ok": true
+       }
+      ],
+      "why": "Bullish bias; ATM option. Stop at 30% of the premium; target premium assumes the index reaches about 13,298 (delta 0.5).",
+      "exit": "Exit at the stop or target, or after 5 sessions; do not hold into expiry week."
+     }
+    ],
+    "selling": [],
+    "notes": []
+   }
+  },
+  "intraday": {
+   "NIFTY": {
+    "symbol": "NIFTY",
+    "mode": "intraday",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 22539.8,
+    "bias": "LONG",
+    "score": 2.4,
+    "threshold": 2.0,
+    "expiry": "2026-10-27",
+    "dte": 4,
+    "expected_move": 192.777204466718,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 16.34,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 22500.0,
+     "resistance": 23000.0,
+     "pcr": 0.809,
+     "max_pain": 22700.0,
+     "atm_iv": 16.34,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 50.0
+    },
+    "futures": [
+     {
+      "method": "OI walls",
+      "entry": 22539.8,
+      "stop": 22500.0,
+      "target": 23000.0,
+      "stop_spot": 22500.0,
+      "target_spot": 23000.0,
+      "rr": 11.562814070351989,
+      "ok": true,
+      "note": "Stop at the put wall 22,500, target at the call wall 23,000"
+     },
+     {
+      "method": "Volatility",
+      "entry": 22539.8,
+      "stop": 22443.411397766642,
+      "target": 22684.382903350037,
+      "stop_spot": 22443.411397766642,
+      "target_spot": 22684.382903350037,
+      "rr": 1.5,
+      "ok": true,
+      "expected_move": 192.777204466718,
+      "iv": 16.34,
+      "note": "1-day expected move \u00b1193 at IV 16.3%"
+     }
+    ],
+    "buying": [
+     {
+      "name": "Buy 22,550 CE",
+      "kind": "buy",
+      "legs": [
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 22550.0,
+        "ltp": 171.7
+       }
+      ],
+      "net": 171.7,
+      "net_kind": "debit",
+      "stop": 128.77499999999998,
+      "target": 243.99145167501922,
+      "max_loss": 171.7,
+      "max_profit": null,
+      "rr": 1.6841339935939246,
+      "breakeven": [
+       22721.7
+      ],
+      "target_spot": 22684.382903350037,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is reasonable",
+        "ok": true
+       },
+       {
+        "text": "No big OI wall before the target",
+        "ok": true
+       }
+      ],
+      "why": "Bullish bias; ATM option. Stop at 25% of the premium; target premium assumes the index reaches about 22,684 (delta 0.5).",
+      "exit": "Square off by 15:15."
+     }
+    ],
+    "selling": [
+     {
+      "name": "Bull put spread",
+      "kind": "sell",
+      "legs": [
+       {
+        "action": "SELL",
+        "type": "PE",
+        "strike": 22400.0,
+        "ltp": 74.55
+       },
+       {
+        "action": "BUY",
+        "type": "PE",
+        "strike": 22300.0,
+        "ltp": 51.2
+       }
+      ],
+      "net": 23.349999999999994,
+      "net_kind": "credit",
+      "stop": 46.69999999999999,
+      "target": 11.674999999999997,
+      "max_loss": 76.65,
+      "max_profit": 23.349999999999994,
+      "rr": 0.3046314416177429,
+      "breakeven": [
+       22376.65
+      ],
+      "width": 100.0,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is fair",
+        "ok": true
+       },
+       {
+        "text": "VIX is not spiking",
+        "ok": true
+       },
+       {
+        "text": "Credit 23.3 is 23% of the 100-point width (needs 20%+)",
+        "ok": true
+       }
+      ],
+      "why": "Defined risk: short 22,400 PE at the expected-move strike (wall is closer); hedge 100 points away.",
+      "exit": "Take profit when it costs 11.7 to close (50% of the credit); cut the loss at 46.7. Square off by 15:15."
+     }
+    ],
+    "notes": [],
+    "zone": "Moderate bullish",
+    "factors": [
+     {
+      "factor": "OI shift, ATM \u00b12 (day's change)",
+      "reading": "Put +12,728 vs Call +13,702",
+      "score": 0.0,
+      "note": "No clear shift"
+     },
+     {
+      "factor": "PCR (total OI)",
+      "reading": "1.08",
+      "score": 0.0,
+      "note": "Neutral / range-bound zone"
+     },
+     {
+      "factor": "PCR intraday slope",
+      "reading": "\u2013",
+      "score": 0.0,
+      "note": "Needs 4+ snapshots"
+     },
+     {
+      "factor": "Change-in-OI PCR (day)",
+      "reading": "1.28",
+      "score": 1.0,
+      "note": "Fresh puts outpace calls"
+     },
+     {
+      "factor": "Futures OI build-up",
+      "reading": "Price -0.60%, OI +29,240",
+      "score": -1.0,
+      "note": "Short build-up"
+     }
+    ]
+   },
+   "SENSEX": {
+    "symbol": "SENSEX",
+    "mode": "intraday",
+    "ts": "2026-10-23 13:57:00",
+    "spot": 72956.94,
+    "bias": "NEUTRAL",
+    "score": 0.6,
+    "threshold": 2.0,
+    "expiry": "2026-10-29",
+    "dte": 6,
+    "expected_move": 666.9430757421059,
+    "vol": {
+     "vix": 14.2,
+     "vix_pct": 0.8,
+     "atm_iv": 17.465,
+     "state": "normal",
+     "rising": false,
+     "note": "Option prices are in the normal range."
+    },
+    "levels": {
+     "support": 71000.0,
+     "resistance": 73500.0,
+     "pcr": 0.95,
+     "max_pain": 73300.0,
+     "atm_iv": 17.465,
+     "state": null,
+     "fut_ltp": null,
+     "fut_pct": null,
+     "step": 100.0
+    },
+    "futures": [],
+    "buying": [],
+    "selling": [
+     {
+      "name": "Iron condor",
+      "kind": "sell",
+      "legs": [
+       {
+        "action": "SELL",
+        "type": "PE",
+        "strike": 71000.0,
+        "ltp": 90.9
+       },
+       {
+        "action": "BUY",
+        "type": "PE",
+        "strike": 70800.0,
+        "ltp": 75.85
+       },
+       {
+        "action": "SELL",
+        "type": "CE",
+        "strike": 73500.0,
+        "ltp": 505.65
+       },
+       {
+        "action": "BUY",
+        "type": "CE",
+        "strike": 73700.0,
+        "ltp": 418.45
+       }
+      ],
+      "net": 102.25,
+      "net_kind": "credit",
+      "stop": 200.0,
+      "target": 51.125,
+      "max_loss": 97.75,
+      "max_profit": 102.25,
+      "rr": 1.0460358056265984,
+      "breakeven": [
+       70897.75,
+       73602.25
+      ],
+      "width": 200.0,
+      "ok": true,
+      "checks": [
+       {
+        "text": "VIX 14.2: premium is fair",
+        "ok": true
+       },
+       {
+        "text": "VIX is not spiking",
+        "ok": true
+       },
+       {
+        "text": "Credit 102.2 is 51% of the 200-point width (needs 20%+)",
+        "ok": true
+       },
+       {
+        "text": "PCR 0.95 is in the range-bound zone",
+        "ok": true
+       }
+      ],
+      "why": "Defined risk: short 71,000 PE at the put OI wall; short 73,500 CE at the call OI wall; hedge 200 points away.",
+      "exit": "Take profit when it costs 51.1 to close (50% of the credit); cut the loss at 200.0. Square off by 15:15."
+     }
+    ],
+    "notes": [
+     "No clear direction: no futures or option-buying idea; a range-bound credit idea is shown instead."
+    ],
+    "zone": "Mild bullish",
+    "factors": [
+     {
+      "factor": "OI shift, ATM \u00b12 (day's change)",
+      "reading": "Put +43 vs Call +15",
+      "score": 0.5,
+      "note": "Put writing leads (no call unwinding yet)"
+     },
+     {
+      "factor": "PCR (total OI)",
+      "reading": "1.27",
+      "score": 1.0,
+      "note": "Above 1.20: bullish"
+     },
+     {
+      "factor": "PCR intraday slope",
+      "reading": "\u2013",
+      "score": 0.0,
+      "note": "Needs 4+ snapshots"
+     },
+     {
+      "factor": "Change-in-OI PCR (day)",
+      "reading": "1.15",
+      "score": 0.0,
+      "note": "Balanced additions"
+     },
+     {
+      "factor": "Futures OI build-up",
+      "reading": "No data",
+      "score": 0.0,
+      "note": "No futures feed, factor skipped"
+     }
+    ]
+   }
+  }
  }
 }
