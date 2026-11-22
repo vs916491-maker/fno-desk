@@ -22,8 +22,9 @@ realised volatility, VIX rank (once 20 sessions are stored). Expanding / contrac
 change in ATM IV (window as above) or India VIX today.
 
 Gamma regime: call and put gamma walls (largest gamma x OI above / below the forward).
-Spot between them and walls within 2.5 expected moves = range (pinning; suits selling);
-spot beyond a wall = breakout (writers' hedging adds to the move); else open.
+Spot between them and walls within 2.5 expected moves = range (suits selling); spot beyond
+the wall as it stood earlier (60 min ago intraday, previous session for swing) = breakout
+(writers covering adds to the move); else open. Walls are picked around spot.
 """
 
 from __future__ import annotations
@@ -254,17 +255,28 @@ def vol_regime(mode, atm_iv, ref, vix, rv, vix_days: pd.Series | None) -> dict:
             "rv10": rv, "iv_rv": ivrv, "vix_rank": rank, "d_iv": d_iv, "note": "; ".join(notes) + "."}
 
 
-def gamma_regime(spot: float, info: dict, em: float | None) -> dict:
+def gamma_regime(spot: float, info: dict, em: float | None, ref=None) -> dict:
+    """Walls are re-picked around spot every snapshot, so spot is never beyond the CURRENT wall.
+    A breakout is spot beyond the wall as it stood earlier (ref: ~60 min ago intraday, the previous
+    session's last reading for swing)."""
     cw, pw, pin = info.get("call_wall"), info.get("put_wall"), info.get("pin")
     out = {"call_wall": cw, "put_wall": pw, "pin": pin, "regime": "open", "near_pin": False}
     if pin and em:
         out["near_pin"] = abs(spot - pin) <= 0.25 * em
-    if cw and spot > cw:
-        out["regime"], out["note"] = "breakout_up", f"Spot above the call gamma wall {cw:,.0f}: call writers' hedging adds to rallies."
-    elif pw and spot < pw:
-        out["regime"], out["note"] = "breakout_down", f"Spot below the put gamma wall {pw:,.0f}: put writers' hedging adds to falls."
+    def _f(k):
+        try:
+            v = float(ref.get(k)) if ref is not None and ref.get(k) is not None else None
+        except (TypeError, ValueError):
+            v = None
+        return v if v is not None and math.isfinite(v) else None
+    cw0, pw0 = _f("call_wall"), _f("put_wall")
+    out.update({"call_wall_ref": cw0, "put_wall_ref": pw0})
+    if cw0 and spot > cw0:
+        out["regime"], out["note"] = "breakout_up", f"Spot has broken above the earlier call gamma wall {cw0:,.0f}: call writers covering adds to rallies."
+    elif pw0 and spot < pw0:
+        out["regime"], out["note"] = "breakout_down", f"Spot has broken below the earlier put gamma wall {pw0:,.0f}: put writers covering adds to falls."
     elif cw and pw and em and (cw - pw) <= config.GAMMA_RANGE_EM * em:
-        out["regime"], out["note"] = "range", f"Spot inside the gamma walls {pw:,.0f}–{cw:,.0f}: moves tend to stall (pinning)."
+        out["regime"], out["note"] = "range", f"Spot inside the gamma walls {pw:,.0f}–{cw:,.0f}: moves tend to stall at the walls."
     else:
         out["note"] = "Gamma walls are far apart: no pinning."
     if out["near_pin"]:
@@ -301,7 +313,7 @@ def build_view(mode: str, symbol: str, g: pd.DataFrame, info: dict, expiry, now:
     em = expected_move(spot, iv, sessions)
     rv = realised_vol(closes, config.RV_DAYS)
     vol = vol_regime(mode, iv, ref, vix, rv, vix_days)
-    gam = gamma_regime(spot, info, em)
+    gam = gamma_regime(spot, info, em, ref)
     if wsum < 60:
         warnings.append("Few factors available yet (early in the day or no history): treat the score with care.")
     return {"symbol": symbol, "mode": mode, "ts": now.strftime("%Y-%m-%dT%H:%M:00"), "spot": spot,

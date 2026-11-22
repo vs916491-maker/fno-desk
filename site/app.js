@@ -266,6 +266,13 @@ function timeChart(cfg) {
         (ser.marks || []).forEach((mk, i) => { if (mk && isNum(ser.values[i])) svg.append(s("rect", { x: x(i) - 3, y: y(ser.values[i]) - 3, width: 6, height: 6, fill: ser.color, transform: `rotate(45 ${x(i)} ${y(ser.values[i])})` })); });
       }
     }
+    for (const mk of cfg.markers || []) {   // event markers: up / down triangles, hollow rings
+      if (!isNum(mk.v) || mk.i < 0 || mk.i >= n) continue;
+      const cx = x(mk.i), cy = y(mk.v), col = mk.color;
+      if (mk.shape === "up") svg.append(s("path", { d: `M${cx},${cy - 12}l6,10h-12z`, fill: col }));
+      else if (mk.shape === "down") svg.append(s("path", { d: `M${cx},${cy + 12}l6,-10h-12z`, fill: col }));
+      else svg.append(s("circle", { cx, cy, r: 6, fill: "none", stroke: col, "stroke-width": 2 }));
+    }
     const cross = s("line", { y1: m.t, y2: m.t + ih, stroke: css("--axis"), visibility: "hidden" });
     const dots = cfg.bars ? [] : cfg.series.map((ser) => s("circle", { r: 4, fill: ser.color, stroke: css("--surface"), "stroke-width": 2, visibility: "hidden" }));
     const hit = s("rect", { x: m.l, y: 0, width: iw, height: H, fill: "transparent", tabindex: 0 });
@@ -280,7 +287,8 @@ function timeChart(cfg) {
         if (isNum(v)) { dots[k].setAttribute("cx", x(i)); dots[k].setAttribute("cy", y(v)); dots[k].setAttribute("visibility", "visible"); }
         else dots[k].setAttribute("visibility", "hidden");
       });
-      const rows = cfg.tipRows ? cfg.tipRows(i) : cfg.series.map((ser) => [ser.name, f(ser.values[i]), ser.color]);
+      const rows = (cfg.tipRows ? cfg.tipRows(i) : cfg.series.map((ser) => [ser.name, f(ser.values[i]), ser.color]))
+        .concat((cfg.markers || []).filter((mk) => mk.i === i).map((mk) => [mk.label, "", mk.color]));
       tip.replaceChildren(h("div", { class: "t-date" }, when(cfg.xs[i])), ...rows.map(([nm, val, col]) =>
         h("div", { class: "t-row" }, h("span", null, col ? h("i", { class: "key", style: `background:${col}` }) : null, nm), h("b", null, val))));
       tip.style.display = "block";
@@ -776,6 +784,29 @@ async function greeksHist(sym, expiry, since) {
     ? "the Greeks history table is not set up yet (run supabase/013_index_greeks.sql in Supabase)" : error.message);
   return data;
 }
+/* Wall events from the 15-minute Greeks history. Walls are re-picked around spot every snapshot,
+   so a break is measured against the wall as it stood BEFORE the move:
+   break_up      spot above the call wall of 2 snapshots earlier, at both of the last 2 snapshots
+                 (held 30 minutes), after being at or below it
+   reject_top    spot came within 0.12% of the call wall, then fell back 0.10% or more by the next snapshot
+   break_down / reject_bottom: the mirror at the put wall. Shown on the chart only; no rule uses them. */
+const WALL_TOUCH = 0.0012, WALL_TURN = 0.0010;
+function wallEvents(rows) {
+  const out = [], num = (v) => (isNum(+v) && v !== null ? +v : null);
+  for (let i = 2; i < rows.length; i++) {
+    const a = rows[i - 2], b = rows[i - 1], c = rows[i];
+    if (String(a.ts).slice(0, 10) !== String(c.ts).slice(0, 10)) continue;     // events inside one session
+    const s0 = num(a.spot), s1 = num(b.spot), s2 = num(c.spot), cw = num(a.call_wall), pw = num(a.put_wall);
+    if ([s0, s1, s2].includes(null)) continue;
+    const last = out[out.length - 1], recent = last && i - last.i < 3;
+    if (cw && s0 <= cw && s1 > cw && s2 > cw && !(recent && last.kind === "break_up")) { out.push({ i, ts: c.ts, kind: "break_up", level: cw, spot: s2 }); continue; }
+    if (pw && s0 >= pw && s1 < pw && s2 < pw && !(recent && last.kind === "break_down")) { out.push({ i, ts: c.ts, kind: "break_down", level: pw, spot: s2 }); continue; }
+    const cw1 = num(b.call_wall), pw1 = num(b.put_wall);
+    if (cw1 && cw1 - s1 <= s1 * WALL_TOUCH && s1 - s2 >= s1 * WALL_TURN && !(recent && last.kind === "reject_top")) out.push({ i: i - 1, ts: b.ts, kind: "reject_top", level: cw1, spot: s1 });
+    else if (pw1 && s1 - pw1 <= s1 * WALL_TOUCH && s2 - s1 >= s1 * WALL_TURN && !(recent && last.kind === "reject_bottom")) out.push({ i: i - 1, ts: b.ts, kind: "reject_bottom", level: pw1, spot: s1 });
+  }
+  return out;
+}
 function greeksTrend(sym, expiry, rows, err) {
   const range = state.gtRange || "today";
   const seg = h("div", { class: "seg", role: "group", "aria-label": "Range" }, [["today", "Latest session"], ["5d", "Last 5 sessions"]].map(([k, l]) =>
@@ -791,11 +822,22 @@ function greeksTrend(sym, expiry, rows, err) {
   const chg = (k, d = 2) => (isNum(last[k]) && isNum(first[k]) ? `${last[k] - first[k] >= 0 ? "+" : ""}${(last[k] - first[k]).toFixed(d)}` : "–");
   const cSpot = css("--s1"), cCall = css("--q-lagging"), cPut = css("--q-leading"), cPin = css("--q-weakening"), cIv = css("--s2"), cVix = css("--s1");
   const base = { xs, timeTicks: range === "today", height: 170 };
+  const events = wallEvents(rows);
+  const evStyle = { break_up: ["up", cPut, "Break above call wall"], break_down: ["down", cCall, "Break below put wall"],
+    reject_top: ["ring", cCall, "Rejected at call wall"], reject_bottom: ["ring", cPut, "Bounced at put wall"] };
+  const markers = events.map((e) => ({ i: e.i, v: e.spot, shape: evStyle[e.kind][0], color: evStyle[e.kind][1], label: `${evStyle[e.kind][2]} ${fmt0(e.level)}` }));
+  const evList = events.length ? h("div", { class: "note", style: "margin-top:8px" }, h("b", null, "Events: "),
+    events.slice(-6).reverse().map((e, k) => h("span", null, k ? " · " : "", `${when(e.ts)} ${evStyle[e.kind][2].toLowerCase()} ${fmt0(e.level)}`))) :
+    h("p", { class: "note", style: "margin-top:8px" }, "No wall breaks or rejections in this range.");
   const charts = h("div", { class: "charts" },
-    chartCard("Spot and gamma walls", "Call wall = largest call gamma × OI above; put wall = largest put gamma × OI below; pin = largest total. Spot between the walls = range; beyond a wall = breakout.",
+    chartCard("Spot and gamma walls", "Call wall = largest call gamma × OI above spot (ceiling); put wall = the same below (floor); pin = largest total. ▲▼ = spot held beyond the earlier wall for 2 snapshots (breakout); ○ = touched a wall and turned back.",
       timeChart({ ...base, series: [{ name: "Spot", values: col("spot"), color: cSpot }, { name: "Call wall", values: col("call_wall"), color: cCall },
-        { name: "Put wall", values: col("put_wall"), color: cPut }, { name: "Pin", values: col("pin"), color: cPin }], fmt: (v) => fmt0(v) }),
-      legend([["Spot", cSpot], ["Call wall", cCall], ["Put wall", cPut], ["Pin", cPin]])),
+        { name: "Put wall", values: col("put_wall"), color: cPut }, { name: "Pin", values: col("pin"), color: cPin }], fmt: (v) => fmt0(v), markers }),
+      legend([["Spot", cSpot], ["Call wall", cCall], ["Put wall", cPut], ["Pin", cPin]]),
+      h("div", { class: "legend", style: "margin-top:4px" },
+        h("span", null, h("b", { style: `color:${cPut}` }, "▲ "), "break above call wall"), h("span", null, h("b", { style: `color:${cCall}` }, "▼ "), "break below put wall"),
+        h("span", null, h("b", { style: `color:${cCall}` }, "○ "), "rejected at call wall"), h("span", null, h("b", { style: `color:${cPut}` }, "○ "), "bounced at put wall")),
+      evList),
     chartCard("ATM IV and India VIX", `Rising = options getting dearer (fear or demand); falling = premium melting. ATM IV ${chg("atm_iv")} vol pts over the range.`,
       timeChart({ ...base, series: [{ name: "ATM IV %", values: col("atm_iv"), color: cIv }, { name: "India VIX", values: col("vix"), color: cVix }],
         fmt: (v) => (isNum(v) ? v.toFixed(2) : "–"), tickFmt: (v) => v.toFixed(1) }),
@@ -1800,6 +1842,7 @@ function viewReadme(app) {
         "Black-76 on each expiry's forward price. Forward from put-call parity on the strikes nearest spot (F = K + (call − put) ÷ discount), so no dividend guess is needed and SENSEX works without a futures feed; the futures price, then spot, are fall-backs.",
         "Time to expiry to 3:30 pm on expiry day (never under 15 minutes). One IV per strike, solved from the out-of-the-money option's LTP (calls at and above the forward, puts below); stale or missing prices are filled from the neighbours. Delta, gamma, theta (points per day) and vega (points per vol point) follow.",
         "Chain readings: ATM IV; 25-delta skew (put IV − call IV at delta 0.25); call and put gamma walls (largest gamma × OI above / below the forward) and the pin strike; writers' net delta (all open OI read as written, −1 to +1).",
+        "Gamma walls are picked around spot each snapshot (call wall above, put wall below). A breakout is spot beyond the wall as it stood earlier: 60 minutes ago intraday, the previous session's last reading for swing. On the Option chain chart: ▲/▼ = spot held beyond the wall of 2 snapshots earlier for 2 snapshots (30 minutes); ○ = spot came within 0.12% of a wall and turned back 0.10% or more by the next snapshot. The chart markers are for reading only; no rule uses them.",
         "Option chain tab, Greeks trend (22 Nov 2026): for the chosen index and expiry, the latest session or the last 5 sessions of spot with the gamma walls and pin, ATM IV with India VIX, the 25-delta put skew, and writers' net delta (table greeks_hist, every 15 minutes).",
       ]),
       h("h3", { class: "readme-h" }, "2. Direction score (−100 to +100)"),
@@ -1814,7 +1857,7 @@ function viewReadme(app) {
       list([
         "Each factor is −1 to +1; points = factor × weight, rescaled when a factor has no data yet. Moderate at ±30, Strong at ±55. A direction also needs price to agree: momentum or structure at least 0.15 the same way; otherwise the view stays neutral (\"positions lean … but price has not moved\").",
         "Volatility: three votes — India VIX (≤13 cheap, ≥18 rich), ATM IV vs 10-day realised volatility (below 0.9× cheap, above 1.25× rich), VIX rank once 20 sessions are stored (≤25 cheap, ≥75 rich). Expanding when ATM IV rises 0.5 vol point in the window or India VIX is up 3%+ today; contracting the mirror.",
-        "Gamma regime: spot between the put and call gamma walls with the walls within 2.5 expected moves = range (moves tend to stall); spot beyond a wall = breakout (writers' hedging adds to the move); otherwise open.",
+        "Gamma regime: spot between the put and call gamma walls with the walls within 2.5 expected moves = range (moves tend to stall); spot beyond the earlier wall = breakout (writers covering adds to the move); otherwise open.",
       ]),
       h("h3", { class: "readme-h" }, "3. Ideas (strikes picked by delta)"),
       tbl(["Idea", "When it fits", "Exit"], [

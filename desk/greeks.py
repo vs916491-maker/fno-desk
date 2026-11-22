@@ -17,8 +17,8 @@ Chain-wide readings:
     atm_iv      IV at the forward (interpolated), in %
     rr25        25-delta risk reversal = IV(25-delta put) - IV(25-delta call), vol points;
                 usually positive; rising = traders paying up for downside protection
-    call_wall   strike at/above F with the largest call gamma x OI (where call writers'
-                hedging is heaviest); put_wall the mirror below F; pin = largest total
+    call_wall   strike at/above spot with the largest call gamma x OI (where call writers'
+                hedging is heaviest); put_wall the mirror below spot; pin = largest total
                 gamma x OI near spot
     writer_net  writers' net delta across all open OI, -1..+1 (+ = put writing outweighs
                 call writing: writers positioned for the index to hold up); stored in
@@ -193,7 +193,7 @@ def chain_greeks(chain: pd.DataFrame, spot: float, expiry: date, now: datetime,
     rr = (p25 - c25) * 100 if p25 is not None and c25 is not None else None
     gx_c = df.gamma * df.ce_oi
     gx_p = df.gamma * df.pe_oi
-    up, dn = df[df.strike >= F], df[df.strike <= F]
+    up, dn = df[df.strike >= spot], df[df.strike <= spot]       # walls around spot, as traders read them
     call_wall = float(up.loc[gx_c[up.index].idxmax(), "strike"]) if len(up) and gx_c[up.index].max() > 0 else None
     put_wall = float(dn.loc[gx_p[dn.index].idxmax(), "strike"]) if len(dn) and gx_p[dn.index].max() > 0 else None
     tot = gx_c + gx_p
