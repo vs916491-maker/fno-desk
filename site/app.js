@@ -1,5 +1,5 @@
 /* F&O Desk - static site on GitHub Pages, data in Supabase.
-   Tabs (hash routes): #/stocks  #/index  #/chain  #/swing  #/watch  #/trades  #/record  #/readme
+   Tabs (hash routes): #/stocks  #/index  #/chain  #/swing  #/watch  #/trades (stock)  #/itrades (index)  #/record (stock)  #/irecord (index)  #/readme
    Without Supabase settings in config.js it runs in preview mode on ./sample. */
 "use strict";
 
@@ -160,6 +160,12 @@ function marketDaysAfter(from, n) {
   return d.toISOString().slice(0, 10);
 }
 const WATCH_DAYS = 3;
+/* the market day (Mon-Fri) before `day` (YYYY-MM-DD). */
+function prevMarketDay(day) {
+  const d = new Date(`${String(day).slice(0, 10)}T12:00:00Z`);
+  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
 
 async function swingEvents() {
   if (!LIVE) return [];
@@ -803,32 +809,51 @@ async function viewChain(app) {
 }
 
 // ------------------------------------------------------------------ tab 4: suggested index trades
-// Swing / Intraday dropdown (14 Nov 2026). Each index: Futures, Option buying, Option selling (defined-risk spreads).
-// Intraday is display only (NIFTY, SENSEX; weekly chain; square off by 3:15 pm).
-const legText = (l) => `${l.action === "BUY" ? "Buy" : "Sell"} ${fmt0(l.strike)} ${l.type} @ ${fmt(l.ltp)}`;
-function ideaTable(list, sym, lots, emptyMsg) {
-  if (!list || !list.length) return h("p", { class: "empty" }, emptyMsg);
-  const lot = lots[sym];
-  const rs = (v) => (isNum(v) && lot ? inr(v * lot) : "–");
-  return h("div", { class: "table-scroll" }, h("table", null,
-    h("thead", null, h("tr", null, ["Idea", "Legs", "Entry", "Stop", "Target", "Max profit / loss", "Breakeven", "Check"].map((c, i) => h("th", { class: i < 2 || i === 7 ? "l" : null }, c)))),
+// 22 Nov 2026: Greeks + price engine (desk/edge.py, desk/strategies.py) replaces the old 5-factor score.
+// Swing / Intraday dropdown; all 5 indices in both. Every idea that passes its checks is logged in the
+// Index Track Record; "I took this trade" saves it to My Index Trades.
+const IDX_SESSIONS = 5;
+const legText = (l) => `${l.action === "BUY" ? "Buy" : "Sell"} ${l.type === "FUT" ? "futures" : `${fmt0(l.strike)} ${l.type}`}${l.synthetic ? " (synthetic)" : ""} @ ${fmt(l.ltp ?? l.entry)}${isNum(l.delta) && l.type !== "FUT" ? ` · Δ ${l.delta >= 0 ? "+" : ""}${l.delta.toFixed(2)}` : ""}`;
+const VOL_WORD = { cheap: "Cheap", normal: "Normal", rich: "Rich" };
+const GAMMA_WORD = { range: "Range (pinning)", breakout_up: "Breakout up", breakout_down: "Breakout down", open: "Open" };
+const STRAT_NAME = { long_option: "Option buying", debit_spread: "Debit spread", credit_spread: "Credit spread",
+  fut_protect: "Futures + protective option", fut_cover: "Futures + covered option", iron_condor: "Iron condor",
+  strangle_dh: "Short strangle, delta-hedged", straddle_dh: "Long straddle, delta-hedged" };
+
+function edgeFactorTable(factors) {
+  return h("table", { class: "factors" },
+    h("thead", null, h("tr", null, h("th", { class: "l" }, "Factor"), h("th", { class: "l" }, "Reading"), h("th", null, "Value"), h("th", null, "Weight"), h("th", null, "Points"), h("th", { class: "l" }, "Read"))),
+    h("tbody", null, (factors || []).map((f) => h("tr", null, h("td", { class: "l" }, f.factor), h("td", { class: "l" }, f.reading),
+      h("td", { class: `score ${sign(f.value)}` }, isNum(f.value) ? `${f.value > 0 ? "+" : ""}${f.value.toFixed(2)}` : "–"),
+      h("td", null, f.weight), h("td", { class: `score ${sign(f.points)}` }, isNum(f.points) ? `${f.points > 0 ? "+" : ""}${f.points.toFixed(1)}` : "not used"),
+      h("td", { class: "l muted" }, f.note)))));
+}
+
+function ideaRows(view, lots, took) {
+  const lot = lots[view.symbol];
+  const rs = (v) => (isNum(v) ? (lot ? inr(v * lot) : fmt(v)) : "Open");
+  const list = view.ideas || [];
+  if (!list.length) return h("p", { class: "empty" }, "No idea: option prices or IV missing.");
+  return h("div", { class: "table-scroll" }, h("table", { class: "ideas-tbl" },
+    h("thead", null, h("tr", null, ["Idea", "Legs", "Net", "Greeks per lot", "Max profit / loss", "Check"].map((c, i) => h("th", { class: [0, 1, 5].includes(i) ? "l" : null }, c)))),
     h("tbody", null, list.map((i) => {
-      const sell = i.kind === "sell";
       const failed = (i.checks || []).filter((c) => !c.ok);
-      return h("tr", { style: "cursor:default" },
-        h("td", { class: "l name" }, i.name, h("small", null, i.why)),
-        h("td", { class: "l" }, (i.legs || []).map((l) => h("div", null, legText(l)))),
-        h("td", null, fmt(i.net), h("small", null, i.net_kind)),
-        h("td", null, fmt(i.stop), h("small", null, sell ? "cost to close" : `premium (−${Math.round(100 - (i.stop / i.net) * 100)}%)`)),
-        h("td", null, fmt(i.target), h("small", null, sell ? "cost to close" : "premium")),
-        h("td", null, `${isNum(i.max_profit) ? rs(i.max_profit) : "Open"} / ${rs(i.max_loss)}`, h("small", null, lot ? `per lot of ${lot}` : "per unit"),
-          isNum(i.rr) ? h("small", null, `R/R ${i.rr.toFixed(2)}`) : null),
-        h("td", null, (i.breakeven || []).map((b) => h("div", null, fmt0(b)))),
+      const g = i.greeks || {};
+      const best = view.best === i.strategy && i.ok;
+      return h("tr", { style: `cursor:default${i.ok ? "" : ";opacity:.62"}` },
+        h("td", { class: "l name", style: "min-width:220px;max-width:330px;white-space:normal" }, i.name, best ? h("span", { class: "flag fno" }, "Best fit") : null, h("small", null, `${i.group} · fit ${i.fit}`), h("small", null, i.why),
+          h("small", null, h("b", null, "Exit: "), i.exit),
+          i.rules && isNum(i.rules.stop_pnl) && lot ? h("small", null, `≈ stop ${inr(i.rules.stop_pnl * lot)} / target ${inr(i.rules.target_pnl * lot)} per lot`) : null),
+        h("td", { class: "l", style: "font-size:13px;min-width:190px" }, (i.legs || []).map((l) => h("div", null, legText(l)))),
+        h("td", null, fmt(i.net), h("small", null, i.net_kind), lot ? h("small", null, inr(i.net * lot)) : null),
+        h("td", { style: "white-space:nowrap" }, h("div", null, `Δ ${g.delta >= 0 ? "+" : ""}${fmt(g.delta, 2)} lot`), h("small", null, `Θ ${lot ? inr(g.theta * lot) : fmt(g.theta)}/day`), h("small", null, `Vega ${lot ? inr(g.vega * lot) : fmt(g.vega)}/vol pt`)),
+        h("td", null, `${rs(i.max_profit)} / ${rs(i.max_loss)}`, h("small", null, lot ? `per lot of ${lot}` : "per unit"),
+          (i.breakeven || []).length ? h("small", null, `Breakeven ${(i.breakeven || []).map(fmt0).join(" / ")}`) : null),
         h("td", { class: "l" }, h("span", { class: i.ok ? "pos" : "neg" }, i.ok ? "Passes" : "Fails"),
           failed.map((c) => h("small", { class: "neg" }, c.text)),
           h("details", null, h("summary", { class: "note", style: "cursor:pointer" }, "All checks"),
-            (i.checks || []).map((c) => h("div", { class: "note" }, `${c.ok ? "✓" : "✗"} ${c.text}`)),
-            h("div", { class: "note", style: "margin-top:4px" }, i.exit))));
+            (i.checks || []).map((c) => h("div", { class: "note" }, `${c.ok ? "✓" : "✗"} ${c.text}`))),
+          h("button", { class: "btn small", style: "margin-top:6px", type: "button", onclick: () => took(view, i) }, "I took this trade")));
     }))));
 }
 
@@ -837,104 +862,382 @@ async function viewSwing(app) {
   if (!d) return render(app, pageHead("Suggested index trades", null), h("p", { class: "empty" }, "No snapshot yet."));
   const mode = state.swingMode === "intraday" ? "intraday" : "swing";
   const lots = d.lot_sizes || {};
-  let sets = (d.ideas || {})[mode] || {};
-  if (mode === "swing" && !Object.keys(sets).length && (d.signals || []).length) {   // snapshot from before the option ideas existed
-    sets = Object.fromEntries((d.signals || []).filter((x) => x.levels && isNum(x.spot)).map((x) => [x.symbol, {
-      symbol: x.symbol, mode: "swing", bias: x.direction === "LONG" || x.direction === "SHORT" ? x.direction : "NEUTRAL", score: x.score,
-      threshold: x.threshold, expiry: x.expiry, dte: x.dte, spot: x.spot, levels: x.levels, futures: x.trades || [], buying: [], selling: [],
-      vol: {}, notes: ["Option buying and selling ideas appear after the next 15-minute snapshot."] }]));
-  }
-  const watch = (sig, t) => watchDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
-    entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lot_size: lots[sig.symbol],
-    expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal", signal_time: sig.ts });
-  const took = (sig, t) => tradeDialog({ kind: "index", symbol: sig.symbol, side: sig.direction === "LONG" ? "Long" : "Short",
-    entry: +t.entry.toFixed(2), stop: +t.stop.toFixed(2), target: +t.target.toFixed(2), lots: 1, lot_size: lots[sig.symbol],
-    expiry: sig.levels.fut_expiry || sig.expiry, method: `Swing: ${t.method}`, source: "swing signal",
-    notes: `${sig.strength} ${sig.direction} ${sig.score >= 0 ? "+" : ""}${sig.score}; ${sig.levels.state || ""}` }, () => { location.hash = "#/trades"; });
+  const sets = (d.views || {})[mode] || {};
+  const took = (v, i) => idxTradeDialog({
+    symbol: v.symbol, mode, strategy: i.strategy, name: i.name, source: "Suggested index trades",
+    legs: i.legs.map((l) => ({ action: l.action, type: l.type, strike: l.strike, expiry: l.expiry, lots: 1, entry: l.ltp, basis: l.basis })),
+    lot_size: lots[v.symbol], delta_hedge: !!(i.rules && i.rules.delta_hedge),
+    stop_inr: i.rules && isNum(i.rules.stop_pnl) && lots[v.symbol] ? Math.round(Math.abs(i.rules.stop_pnl) * lots[v.symbol]) : null,
+    target_inr: i.rules && isNum(i.rules.target_pnl) && lots[v.symbol] ? Math.round(i.rules.target_pnl * lots[v.symbol]) : null,
+    time_exit: mode === "intraday" ? `${istDate()}T15:15` : `${[marketDaysAfter(istDate(), IDX_SESSIONS - 1), prevMarketDay(v.expiry)].sort()[0]}T15:15`,
+    notes: `${v.strength || "No"} ${v.direction === "NEUTRAL" ? "direction" : v.direction} ${v.score >= 0 ? "+" : ""}${v.score}; vol ${v.vol.state}/${v.vol.trend}; gamma ${v.gamma.regime}`,
+  }, () => { location.hash = "#/itrades"; });
 
   const modeBar = h("div", { class: "filters", style: "padding-top:4px" },
     h("span", { class: "filter-label" }, "View"),
     h("select", { "aria-label": "Swing or Intraday", onchange: (e) => { state.swingMode = e.target.value; route(); } },
-      h("option", { value: "swing", selected: mode === "swing" || null }, "Swing (up to 5 sessions)"),
+      h("option", { value: "swing", selected: mode === "swing" || null }, "Swing (up to 5 sessions, monthly chain)"),
       h("option", { value: "intraday", selected: mode === "intraday" || null }, "Intraday (square off by 3:15 pm)")));
 
-  const futuresTable = (sig, trades, buttons) => (trades && trades.length ? h("div", { class: "table-scroll" }, h("table", null,
-    h("thead", null, h("tr", null, ["Futures trade", "Entry", "Stop", "Target", "R/R", "Lot", "Check", buttons ? "" : null].filter((c) => c !== null).map((c, i) => h("th", { class: i === 0 || i === 6 ? "l" : null }, c)))),
-    h("tbody", null, trades.map((t) => h("tr", { style: "cursor:default" },
-      h("td", { class: "l name" }, t.method, h("small", null, t.note)),
-      h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
-      h("td", null, isNum(t.rr) ? t.rr.toFixed(2) : "–"), h("td", null, lots[sig.symbol] || "–"),
-      h("td", { class: `l ${t.ok ? "pos" : "neg"}` }, t.ok ? "Passes" : "Fails"),
-      buttons ? h("td", null, h("div", { class: "btn-row nowrap" }, h("button", { class: "btn small", type: "button", onclick: () => took(sig, t) }, "I took this trade"),
-        h("button", { class: "btn small", type: "button", onclick: () => watch(sig, t) }, "Watchlist"))) : null))))) : h("p", { class: "empty" }, "No futures idea: no clear direction, or no futures feed."));
-
-  const volStats = (id) => {
-    const v = id.vol || {};
-    return [stat("India VIX", isNum(v.vix) ? v.vix.toFixed(2) : "–", isNum(v.vix_pct) ? `${pct(v.vix_pct)} today, ${v.state}` : v.state, null),
-      stat("ATM IV", isNum(v.atm_iv) ? `${v.atm_iv.toFixed(1)}%` : "–", isNum(id.expected_move) ? `${id.mode === "swing" ? "5-session" : "1-session"} move ±${fmt0(id.expected_move)}` : null)];
-  };
-  const subHead = (t, p) => h("div", { class: "section-head", style: "margin:14px 0 6px" }, h("h3", { style: "margin:0;font-size:15px" }, t), p ? h("p", null, p) : null);
-
-  const section = (sig, id) => {
-    const lv = id.levels || {};
-    const swing = id.mode === "swing";
+  const section = (v) => {
+    const vol = v.vol || {}, gm = v.gamma || {}, lv = v.levels || {};
     return h("div", { class: "panel", style: "margin-bottom:14px" },
       h("div", { class: "section-head", style: "margin:0 0 8px" },
-        h("h2", null, id.symbol, " ", chartLink(id.symbol, "fut", "60"), " ", sideTag(id.bias === "NEUTRAL" ? "NO TRADE" : id.bias),
-          swing && sig && sig.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${sig.strength}`) : null,
-          !swing && id.zone ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${id.zone}`) : null),
-        h("p", null, `${swing ? "Swing score" : "Trend score"} ${id.score >= 0 ? "+" : ""}${id.score} of ±5 (needs ±${id.threshold}); ${swing ? "monthly" : "weekly"} expiry ${id.expiry} (${id.dte}d)`)),
+        h("h2", null, v.symbol, " ", chartLink(v.symbol, "fut", mode === "intraday" ? "15" : "60"), " ", sideTag(v.direction === "NEUTRAL" ? "NO TRADE" : v.direction),
+          v.strength ? h("span", { class: "muted", style: "font-weight:400;font-size:14px" }, ` ${v.strength}`) : null),
+        h("p", null, `Score ${v.score >= 0 ? "+" : ""}${v.score} of ±100 (Moderate ±30, Strong ±55); ${mode === "swing" ? "monthly" : "nearest"} expiry ${dayLabel(v.expiry)} (${v.dte}d)`)),
       h("div", { class: "stats" },
-        stat("Spot", fmt(id.spot)), stat("Support / resistance", `${fmt0(lv.support)} / ${fmt0(lv.resistance)}`),
-        stat("PCR", isNum(lv.pcr) ? lv.pcr.toFixed(2) : "–", `Max pain ${fmt0(lv.max_pain)}`),
-        stat("Futures", lv.state || "No data", lv.fut_ltp ? `${fmt(lv.fut_ltp)} (${pct(lv.fut_pct)})` : null, "txt"),
-        volStats(id)),
-      h("p", { class: "note", style: "margin:8px 0 0" }, (id.vol && id.vol.note) || ""),
-      swing && sig && sig.levels && sig.levels.interpretation ? h("p", { class: "intro" }, sig.levels.interpretation) : null,
-      (swing && sig ? sig.warnings || [] : []).map((w) => h("div", { class: "banner" }, w)),
-      (id.notes || []).map((w) => h("div", { class: "banner" }, w)),
-      subHead("Futures", swing ? "Buy or sell the index future; stop and target two ways" : "Display only; square off by 3:15 pm"),
-      futuresTable(sig || { symbol: id.symbol }, id.futures, swing),
-      subHead("Option buying", "Long ATM call or put; needs a direction"),
-      ideaTable(id.buying, id.symbol, lots, id.bias === "NEUTRAL" ? "No direction, so no option-buying idea." : "No idea: option prices missing."),
-      subHead("Option selling", "Defined-risk spreads only: bull put (bullish), bear call (bearish), iron condor (no direction)"),
-      ideaTable(id.selling, id.symbol, lots, "No idea: option prices missing."),
-      h("details", null, h("summary", { class: "note", style: "cursor:pointer;margin-top:10px" }, "What makes up the score"),
-        factorTable(swing && sig ? sig.factors : id.factors)));
+        stat("Spot / forward", fmt(v.spot), isNum(v.fwd) ? `Forward ${fmt(v.fwd)} (${v.fwd_src})` : null),
+        stat("ATM IV", isNum(vol.atm_iv) ? `${vol.atm_iv.toFixed(1)}%` : "–", isNum(vol.rv10) ? `10-day realised ${vol.rv10.toFixed(1)}%` : "Realised vol: needs more history"),
+        stat("India VIX", isNum(vol.vix) ? vol.vix.toFixed(2) : "–", [isNum(vol.vix_pct) ? `${pct(vol.vix_pct)} today` : null, isNum(vol.vix_rank) ? `rank ${Math.round(vol.vix_rank)}` : null].filter(Boolean).join(", ")),
+        stat("Volatility", VOL_WORD[vol.state] || "–", vol.trend, "txt"),
+        stat("Gamma", GAMMA_WORD[gm.regime] || "–", `Put wall ${fmt0(gm.put_wall)} · call wall ${fmt0(gm.call_wall)}`, "txt"),
+        stat("25Δ skew", isNum(v.rr25) ? `${v.rr25 >= 0 ? "+" : ""}${v.rr25.toFixed(2)}` : "–", "Put IV − call IV, vol pts"),
+        stat("Expected move", isNum(v.em) ? `±${fmt0(v.em)}` : "–", `${v.em_sessions} session${v.em_sessions > 1 ? "s" : ""}, from ATM IV`),
+        stat("Futures", lv.state || "No data", lv.fut_ltp ? `${fmt(lv.fut_ltp)} (${pct(lv.fut_pct)})` : null, "txt")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, `${vol.note || ""} ${gm.note || ""}`),
+      (v.warnings || []).map((w) => h("div", { class: "banner" }, w)),
+      h("div", { class: "section-head", style: "margin:14px 0 6px" }, h("h3", { style: "margin:0;font-size:15px" }, "Ideas"),
+        h("p", null, "Best fit first; greyed ideas fail a check. Ideas that pass are logged in the Index Track Record.")),
+      ideaRows(v, lots, took),
+      h("details", null, h("summary", { class: "note", style: "cursor:pointer;margin-top:10px" }, "What makes up the score"), edgeFactorTable(v.factors)));
   };
-
-  const sigBy = Object.fromEntries((d.signals || []).map((x) => [x.symbol, x]));
-  const order = Object.keys(sets);
-  const cards = order.length ? order.map((sym) => section(sigBy[sym], sets[sym]))
-    : [h("p", { class: "empty" }, mode === "intraday" ? "No intraday view yet: it needs a few 15-minute snapshots on the weekly chain."
-      : "No swing ideas yet: they appear after the first chain snapshot of the day.")];
+  const order = SYMS.filter((s2) => sets[s2]);
+  const cards = order.length ? order.map((s2) => section(sets[s2]))
+    : [h("p", { class: "empty" }, d.engine ? "No ideas yet: they appear after the first chain snapshot of the day." : "The Greeks engine starts with the next 15-minute snapshot.")];
 
   const histTable = hist.length ? h("table", null,
     h("thead", null, h("tr", null, ["Day", "Index", "Signal", "Score", "Spot at 3:15"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
     h("tbody", null, hist.map((r) => h("tr", { style: "cursor:default" }, h("td", { class: "l" }, dayLabel(r.day)), h("td", { class: "l" }, r.symbol),
       h("td", { class: "l" }, sideTag(r.direction), r.strength ? ` ${r.strength}` : ""), h("td", null, isNum(r.score) ? r.score : "–"), h("td", null, fmt(r.spot)))))) : null;
-  const vol = (e) => ((e.signal && e.signal.trades) || []).find((t) => t.method === "Volatility") || ((e.signal && e.signal.trades) || [])[0];
   const setupTable = events.length ? h("table", null,
-    h("thead", null, h("tr", null, ["Formed at", "Index", "Setup", "Score", "Spot", "Futures entry", "Stop", "Target"].map((c, i) => h("th", { class: i < 3 ? "l" : null }, c)))),
-    h("tbody", null, events.map((e) => {
-      const t = vol(e);
-      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(e.ts)), h("td", { class: "l name" }, e.symbol, chartLink(e.symbol, "fut", "60")),
-        h("td", { class: "l" }, e.direction === "ENDED" ? h("span", { class: "muted" }, "Setup ended") : [sideTag(e.direction), e.strength ? ` ${e.strength}` : ""]),
-        h("td", null, isNum(e.score) ? `${e.score > 0 ? "+" : ""}${e.score}` : "–"), h("td", null, fmt(e.spot)),
-        h("td", null, t ? fmt(t.entry) : "–"), h("td", null, t ? fmt(t.stop) : "–"), h("td", null, t ? fmt(t.target) : "–"));
-    }))) : null;
+    h("thead", null, h("tr", null, ["Formed at", "Index", "Direction", "Score", "Spot", "Best idea then"].map((c, i) => h("th", { class: i < 3 || i === 5 ? "l" : null }, c)))),
+    h("tbody", null, events.map((e) => h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(e.ts)), h("td", { class: "l name" }, e.symbol, chartLink(e.symbol, "fut", "60")),
+      h("td", { class: "l" }, e.direction === "ENDED" ? h("span", { class: "muted" }, "Direction ended") : [sideTag(e.direction), e.strength ? ` ${e.strength}` : ""]),
+      h("td", null, isNum(e.score) ? `${e.score > 0 ? "+" : ""}${e.score}` : "–"), h("td", null, fmt(e.spot)),
+      h("td", { class: "l" }, (e.signal && e.signal.best) || "–"))))) : null;
 
   const intro = mode === "swing"
-    ? "Score = OI shift (ATM ±2, last 60 min) + PCR level + PCR slope + change-in-OI PCR + futures build-up, each −1 to +1. Long at +2.5 or more, short at −2.5 or less. Each index shows Futures, Option buying and Option selling ideas built from the monthly chain (OI walls, IV), futures OI and India VIX. A setup shows here, and in the log below, at the first 15-minute update after its score crosses ±2.5. The day's closing signal is also saved at 3:15 pm."
-    : "Intraday view for NIFTY and SENSEX on the weekly chain. Direction comes from the intraday trend scale (Moderate, ±2 or more); below that there is no direction and only a range-bound credit idea. Prices use the 1-session expected move from ATM IV. Display only: nothing is logged or added to My Trades; square off by 3:15 pm.";
+    ? "Greeks engine (22 Nov 2026). Greeks are worked out from the free option chain (Black-76 on the put-call-parity forward). Direction score = price momentum 25 + price structure 20 + writer delta flow 20 + futures build-up 15 + put-skew change 10 + IV vs price 10 (−100 to +100). Price leads: a direction also needs price to agree. Volatility (cheap / normal / rich, expanding / contracting) and the gamma walls then pick the structure: option buying, spreads, futures with a hedge, condors, or delta-hedged straddles / strangles. Swing: monthly chain, up to 5 sessions."
+    : "Intraday view, all 5 indices (weekly chain for NIFTY and SENSEX, monthly for the rest). Same engine with intraday windows: momentum over the last 30 minutes, the day's range, writer flow over 30 minutes, futures over 60 minutes, skew and IV over 60 minutes. Expected move for 1 session. Square off by 3:15 pm; after 2 pm new intraday ideas fail the time check.";
   render(app,
     pageHead("Suggested index trades", `Live, updated every 15 minutes; last update ${when(d.ts)}`),
     modeBar,
     h("p", { class: "intro" }, intro),
     cards,
-    mode === "swing" ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Setups as they formed"), h("p", null, "Last 8 days; levels use the volatility method at the time")),
-      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing setup has formed yet.")) : null,
-    mode === "swing" && histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
+    mode === "swing" ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Directions as they formed"), h("p", null, "Last 8 days, swing view")),
+      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing direction has formed yet.")) : null,
+    mode === "swing" && histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days"), h("p", null, "Scores before 23 Nov 2026 are the old 5-factor score (±5)")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
+}
+
+// ------------------------------------------------------------------ index trades data (My Index Trades, Index Track Record)
+const sampleIdx = [];
+async function loadIdxTrades() {
+  if (!LIVE) return sampleIdx.slice();
+  const { data, error } = await sb.from("index_trades").select("*").order("entry_time", { ascending: false });
+  if (error) throw new Error(/index_trades|does not exist|schema cache/i.test(error.message)
+    ? "the My Index Trades table is not set up yet (run supabase/013_index_greeks.sql in Supabase)" : error.message);
+  return data;
+}
+async function saveIdxTrade(row, id) {
+  if (!LIVE) { if (id) Object.assign(sampleIdx.find((x) => x.id === id) || {}, row); else sampleIdx.push({ ...row, id: Date.now() }); return; }
+  const q = id ? sb.from("index_trades").update(row).eq("id", id).select("id") : sb.from("index_trades").insert(row).select("id");
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  if (id && !(data && data.length)) throw new Error("this trade is now locked (the 7:40 pm check has passed). Reload the page.");
+}
+async function deleteIdxTrade(id) {
+  if (!LIVE) { const i = sampleIdx.findIndex((x) => x.id === id); if (i >= 0) sampleIdx.splice(i, 1); return; }
+  const { error } = await sb.from("index_trades").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+async function loadIdxIdeas() {
+  if (!LIVE) { const r = await fetch("sample/index_ideas.json", { cache: "no-cache" }); return r.ok ? r.json() : []; }
+  const { data, error } = await sb.from("index_ideas").select("*").order("logged_ts", { ascending: false }).limit(4000);
+  if (error) throw new Error(/index_ideas|does not exist|schema cache/i.test(error.message)
+    ? "the Index Track Record table is not set up yet (run supabase/013_index_greeks.sql in Supabase)" : error.message);
+  return data;
+}
+const legSign = (l) => (l.action === "BUY" ? 1 : -1);
+/* P&L in rupees of legs + hedges at the given prices (same order), minus charges. */
+function idxPnl(t, prices) {
+  const all = [...(t.legs || []), ...(t.hedges || [])];
+  const lot = t.lot_size || 1;
+  let v = 0;
+  for (let i = 0; i < all.length; i++) {
+    if (!isNum(prices[i])) return null;
+    v += legSign(all[i]) * (all[i].lots || 1) * lot * (prices[i] - all[i].entry);
+  }
+  return v - (t.charges || 0);
+}
+
+/* Multi-leg index trade form: prefilled from an idea, or blank (Add a trade). */
+function idxTradeDialog(prefill, onSaved) {
+  const dlg = document.getElementById("dlg");
+  const t = { legs: [], hedges: [], lot_size: null, delta_hedge: false, ...prefill };
+  const legs = (t.legs.length ? t.legs : [{ action: "BUY", type: "CE", strike: "", expiry: "", lots: 1, entry: "" }]).map((l) => ({ ...l }));
+  const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const err = h("p", { class: "err", role: "alert" });
+  const legBox = h("div");
+  const sel = (name, opts, v) => h("select", { name }, opts.map((o) => h("option", { value: o, selected: o === v || null }, o)));
+  const drawLegs = () => legBox.replaceChildren(h("div", { class: "table-scroll" }, h("table", null,
+    h("thead", null, h("tr", null, ["Buy/Sell", "Type", "Strike", "Expiry", "Lots", "Entry price", ""].map((c) => h("th", { class: "l" }, c)))),
+    h("tbody", null, legs.map((l, i) => h("tr", { style: "cursor:default", "data-i": i },
+      h("td", null, sel("action", ["BUY", "SELL"], l.action)), h("td", null, sel("type", ["CE", "PE", "FUT"], l.type)),
+      h("td", null, h("input", { name: "strike", type: "number", step: "any", value: l.strike ?? "", style: "width:90px" })),
+      h("td", null, h("input", { name: "expiry", type: "date", value: String(l.expiry || "").slice(0, 10) })),
+      h("td", null, h("input", { name: "lots", type: "number", min: "1", step: "1", value: l.lots ?? 1, style: "width:60px" })),
+      h("td", null, h("input", { name: "entry", type: "number", step: "any", value: l.entry ?? "", required: true, style: "width:90px" })),
+      h("td", null, h("button", { class: "btn small", type: "button", onclick: () => { readLegs(); legs.splice(i, 1); drawLegs(); } }, "Remove"))))))));
+  const readLegs = () => legBox.querySelectorAll("tbody tr").forEach((tr) => {
+    const l = legs[+tr.dataset.i], q = (n) => tr.querySelector(`[name=${n}]`).value;
+    Object.assign(l, { action: q("action"), type: q("type"), strike: q("strike") === "" ? null : +q("strike"), expiry: q("expiry") || null, lots: +q("lots") || 1, entry: q("entry") === "" ? null : +q("entry") });
+  });
+  drawLegs();
+  const field = (label, name, attrs = {}, wide = false) => h("label", { class: wide ? "wide" : null }, label, h("input", { name, value: t[name] ?? "", ...attrs }));
+  const form = h("form", { method: "dialog" },
+    h("h2", null, t.id ? `Edit ${t.symbol} trade` : t.name ? `I took this trade: ${t.symbol}` : "Add an index trade"),
+    h("p", { class: "note" }, "Enter your actual fill prices. P&L ₹ = Σ (sell − buy) × lots × lot size − charges, over every leg and hedge. Stop / target are for the whole position in rupees; leave empty to close only by hand."),
+    t.name ? h("p", { class: "note" }, h("b", null, t.name)) : null,
+    h("div", { class: "form-grid" },
+      field("Index", "symbol", { required: true, autocapitalize: "characters" }),
+      field("Lot size", "lot_size", { type: "number", step: "1", required: true }),
+      field("Entry time", "entry_time", { type: "datetime-local", value: String(t.entry_time || nowLocal).slice(0, 16), required: true }),
+      field("Stop ₹ (loss)", "stop_inr", { type: "number", step: "any" }),
+      field("Target ₹ (profit)", "target_inr", { type: "number", step: "any" }),
+      field("Time exit", "time_exit", { type: "datetime-local", value: String(t.time_exit || "").slice(0, 16) }),
+      field("Charges ₹ (optional)", "charges", { type: "number", step: "any" }),
+      h("label", null, "Delta hedge prompts", h("select", { name: "delta_hedge" }, h("option", { value: "1", selected: t.delta_hedge || null }, "On"), h("option", { value: "0", selected: !t.delta_hedge || null }, "Off"))),
+      h("label", { class: "wide" }, "Notes", h("textarea", { name: "notes" }, t.notes || ""))),
+    h("h3", { class: "readme-h" }, "Legs"), legBox,
+    h("div", { class: "btn-row" }, h("button", { class: "btn small", type: "button", onclick: () => { readLegs(); legs.push({ action: "BUY", type: "CE", strike: null, expiry: legs[0]?.expiry || null, lots: legs[0]?.lots || 1, entry: null }); drawLegs(); } }, "Add a leg")),
+    err,
+    h("div", { class: "btn-row" },
+      h("button", { class: "btn primary", type: "submit" }, "Save trade"),
+      h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel")));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    readLegs();
+    const v = readForm(form);
+    if (!legs.length) { err.textContent = "Add at least one leg."; return; }
+    if (legs.some((l) => !isNum(l.entry) || (l.type !== "FUT" && !isNum(l.strike)))) { err.textContent = "Every leg needs an entry price, and options a strike."; return; }
+    const row = { symbol: v.symbol.trim().toUpperCase(), lot_size: +v.lot_size, entry_time: v.entry_time,
+      legs: legs.map((l) => ({ action: l.action, type: l.type, strike: l.type === "FUT" ? null : l.strike, expiry: l.expiry, lots: l.lots, entry: l.entry, ...(isNum(l.basis) ? { basis: l.basis } : {}) })),
+      stop_inr: v.stop_inr ? Math.abs(+v.stop_inr) : null, target_inr: v.target_inr ? Math.abs(+v.target_inr) : null,
+      time_exit: v.time_exit || null, charges: v.charges ? +v.charges : 0, delta_hedge: v.delta_hedge === "1", notes: v.notes || null };
+    if (!t.id) Object.assign(row, { mode: t.mode || "manual", strategy: t.strategy || null, name: t.name || null, source: t.source || "manual", hedges: [], status: "open" });
+    try { await saveIdxTrade(row, t.id); dlg.close(); onSaved && onSaved(); } catch (ex) { err.textContent = `Could not save: ${ex.message}`; }
+  });
+  dlg.replaceChildren(form);
+  if (!dlg.open) dlg.showModal();
+}
+
+function idxHedgeDialog(t, mark, onSaved) {
+  const dlg = document.getElementById("dlg");
+  const err = h("p", { class: "err", role: "alert" });
+  const s = (mark && mark.hedge) || {};
+  const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const form = h("form", { method: "dialog" },
+    h("h2", null, `Add a futures hedge: ${t.symbol}`),
+    h("p", { class: "note" }, s.note || (mark ? `Net delta ${fmt(mark.delta_lots, 2)} lots.` : "")),
+    h("div", { class: "form-grid" },
+      h("label", null, "Buy / Sell", h("select", { name: "action" }, ["BUY", "SELL"].map((o) => h("option", { selected: o === s.action || null }, o)))),
+      h("label", null, "Lots", h("input", { name: "lots", type: "number", step: "1", min: "1", value: s.lots || 1, required: true })),
+      h("label", null, "Futures price", h("input", { name: "entry", type: "number", step: "any", value: mark && isNum(mark.fut_px) ? mark.fut_px : "", required: true })),
+      h("label", null, "Time", h("input", { name: "time", type: "datetime-local", value: nowLocal, required: true }))),
+    err,
+    h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "submit" }, "Add hedge"), h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel")));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = readForm(form);
+    const hedges = [...(t.hedges || []), { action: v.action, type: "FUT", lots: +v.lots, entry: +v.entry, time: v.time, expiry: (t.legs[0] || {}).expiry || null }];
+    try { await saveIdxTrade({ hedges }, t.id); dlg.close(); onSaved && onSaved(); } catch (ex) { err.textContent = ex.message; }
+  });
+  dlg.replaceChildren(form);
+  dlg.showModal();
+}
+
+function idxCloseDialog(t, mark, onSaved) {
+  const dlg = document.getElementById("dlg");
+  const err = h("p", { class: "err", role: "alert" });
+  const all = [...(t.legs || []), ...(t.hedges || [])];
+  const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const form = h("form", { method: "dialog" },
+    h("h2", null, `Close ${t.symbol}: ${t.name || "index trade"}`),
+    h("p", { class: "note" }, "Exit price of each leg (filled with the latest 15-minute prices; change them to your fills)."),
+    h("div", { class: "form-grid" },
+      all.map((l, i) => h("label", null, `${l.action === "BUY" ? "Bought" : "Sold"} ${l.lots || 1} × ${l.type === "FUT" ? "futures" : `${fmt0(l.strike)} ${l.type}`} @ ${fmt(l.entry)}`,
+        h("input", { name: `px${i}`, type: "number", step: "any", required: true, value: mark && mark.px && isNum(mark.px[i]) ? mark.px[i] : "" }))),
+      h("label", null, "Exit time", h("input", { name: "exit_time", type: "datetime-local", value: nowLocal, required: true })),
+      h("label", { class: "wide" }, "Reason", h("input", { name: "exit_reason", value: "closed by hand" }))),
+    err,
+    h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "submit" }, "Close trade"), h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel")));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = readForm(form);
+    const px = all.map((_, i) => +v[`px${i}`]);
+    const pnl = idxPnl(t, px);
+    try {
+      await saveIdxTrade({ status: "closed", exit_time: v.exit_time, exit_reason: v.exit_reason || "closed by hand", exit_px: px, pnl_inr: isNum(pnl) ? +pnl.toFixed(2) : null }, t.id);
+      dlg.close(); onSaved && onSaved();
+    } catch (ex) { err.textContent = ex.message; }
+  });
+  dlg.replaceChildren(form);
+  dlg.showModal();
+}
+
+// ------------------------------------------------------------------ tab: my index trades
+async function viewIdxTrades(app) {
+  const rerender = () => route();
+  let rows = [], loadErr = null;
+  try { rows = await loadIdxTrades(); } catch (e) { loadErr = e.message; }
+  const [mk, legacyAll, tpIndex] = await Promise.all([
+    LIVE ? doc("index_trade_marks").catch(() => null) : null,
+    loadTrades().catch(() => []),
+    LIVE ? doc("trade_prices_index").catch(() => null) : null]);
+  const marks = (mk && mk.marks) || {};
+  const legacy = legacyAll.filter((t) => t.kind === "index");
+  const open = rows.filter((t) => t.status === "open"), closed = rows.filter((t) => t.status === "closed");
+  const now = new Date(), curFy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const fyOf = (ts) => { const y = +String(ts).slice(0, 4), m = +String(ts).slice(5, 7); return m >= 4 ? y : y - 1; };
+  const fy = closed.filter((t) => isNum(t.pnl_inr) && fyOf(t.exit_time || t.entry_time) === curFy)
+    .concat(legacy.filter((t) => t.status === "closed" && isNum(t.pnl_inr) && fyOf(t.exit_time || t.entry_time) === curFy));
+  const wins = fy.filter((t) => t.pnl_inr > 0), gain = wins.reduce((a, t) => a + t.pnl_inr, 0);
+  const loss = fy.filter((t) => t.pnl_inr <= 0).reduce((a, t) => a + t.pnl_inr, 0), net = gain + loss;
+  const legName = (l) => `${l.action === "BUY" ? "Buy" : "Sell"} ${l.lots || 1} × ${l.type === "FUT" ? "futures" : `${fmt0(l.strike)} ${l.type}`}${l.expiry ? ` ${dayLabel(l.expiry)}` : ""}`;
+
+  const card = (t) => {
+    const m = marks[String(t.id)];
+    const all = [...(t.legs || []), ...(t.hedges || []).map((x) => ({ ...x, hedge: true }))];
+    const lot = t.lot_size || 1;
+    const legRows = all.map((l, i) => {
+      const px = m && m.px ? m.px[i] : null;
+      const p = isNum(px) ? legSign(l) * (l.lots || 1) * lot * (px - l.entry) : null;
+      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, legName(l), l.hedge ? h("span", { class: "flag" }, "hedge") : null),
+        h("td", null, fmt(l.entry)), h("td", null, isNum(px) ? fmt(px) : "–"), h("td", { class: sign(p) }, isNum(p) ? inr(p) : "–"));
+    });
+    return h("div", { class: "panel", style: "margin-bottom:12px" },
+      h("div", { class: "section-head", style: "margin:0 0 6px" },
+        h("h2", null, t.symbol, " ", chartLink(t.symbol, "fut", "15"), " ", h("span", { style: "font-weight:500" }, t.name || STRAT_NAME[t.strategy] || "Index trade"),
+          t.mode ? h("span", { class: "flag" }, t.mode) : null),
+        h("p", null, `Entered ${when(t.entry_time)} · lot ${lot}${t.time_exit ? ` · time exit ${when(t.time_exit)}` : ""}${t.stop_inr ? ` · stop ${inr(-t.stop_inr)}` : ""}${t.target_inr ? ` · target ${inr(t.target_inr)}` : ""}`)),
+      h("div", { class: "stats" },
+        stat("P&L now", m && isNum(m.pnl_inr) ? inr(m.pnl_inr) : "–", m ? `at ${when(m.t)}${m.missing ? " (a leg has no price)" : ""}` : "Updated by the next 15-minute snapshot", m ? sign(m.pnl_inr) : null),
+        stat("Net delta", m ? `${m.delta_lots >= 0 ? "+" : ""}${fmt(m.delta_lots, 2)} lots` : "–", m ? `≈ ${inr(m.delta_lots * lot)} per index point` : null),
+        stat("Theta", m ? `${inr(m.theta_inr)}/day` : "–"), stat("Vega", m ? `${inr(m.vega_inr)}/vol pt` : "–"),
+        stat("Gamma", m ? fmt(m.gamma_inr, 3) : "–", "Δ change per point, × lot")),
+      m && m.hedge && (t.delta_hedge || Math.abs(m.delta_lots) >= 1) ? h("div", { class: "banner" }, h("b", null, "Delta hedge: "), m.hedge.note,
+        m.hedge.lots ? h("button", { class: "btn small", style: "margin-left:8px", type: "button", onclick: () => idxHedgeDialog(t, m, rerender) }, "Add this hedge") : null) : null,
+      h("div", { class: "table-scroll" }, h("table", null, h("thead", null, h("tr", null, ["Leg", "Entry", "Now", "P&L ₹"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))), h("tbody", null, legRows))),
+      t.notes ? h("p", { class: "note" }, t.notes) : null,
+      h("div", { class: "btn-row", style: "margin-top:8px" },
+        h("button", { class: "btn small primary", type: "button", onclick: () => idxCloseDialog(t, m, rerender) }, "Close"),
+        h("button", { class: "btn small", type: "button", onclick: () => idxHedgeDialog(t, m, rerender) }, "Add a hedge"),
+        h("button", { class: "btn small", type: "button", onclick: () => idxTradeDialog(t, rerender) }, "Edit"),
+        h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm(`Delete the ${t.symbol} trade? This cannot be undone.`)) { await deleteIdxTrade(t.id); rerender(); } } }, "Delete")));
+  };
+  const closedTable = h("table", null,
+    h("thead", null, h("tr", null, ["Entry", "Index", "Trade", "Exit", "Reason", "P&L ₹", ""].map((c, i) => h("th", { class: [0, 1, 2, 4].includes(i) ? "l" : null }, c)))),
+    h("tbody", null, closed.map((t) => h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(t.entry_time)), h("td", { class: "l name" }, t.symbol),
+      h("td", { class: "l" }, t.name || STRAT_NAME[t.strategy] || "–", h("small", null, (t.legs || []).map(legName).join(" · ") + ((t.hedges || []).length ? ` · ${t.hedges.length} hedge${t.hedges.length > 1 ? "s" : ""}` : ""))),
+      h("td", null, when(t.exit_time)), h("td", { class: "l" }, t.exit_reason || "–"), h("td", { class: sign(t.pnl_inr) }, inr(t.pnl_inr)),
+      h("td", { class: "l" }, canFix(t) ? h("div", { class: "btn-row" },
+        h("button", { class: "btn small", type: "button", onclick: async () => { if (confirm("Reopen this trade?")) { await saveIdxTrade({ status: "open", exit_time: null, exit_reason: null, exit_px: null, pnl_inr: null }, t.id); rerender(); } } }, "Reopen"),
+        h("small", { class: "muted" }, fixLabel(t))) : h("span", { class: "muted" }, "Locked"))))));
+  const legacyRow = (t) => {
+    const L = t.status === "open" ? livePnl(t, tpIndex) : null;
+    return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(t.entry_time)), h("td", { class: "l name" }, t.symbol, h("small", null, `${t.lots || 1} × ${t.lot_size || "–"}`)),
+      h("td", { class: "l" }, sideTag(t.side)), h("td", null, fmt(t.entry)), h("td", null, fmt(t.stop)), h("td", null, fmt(t.target)),
+      h("td", null, t.status === "open" ? (L ? fmt(L.px) : "–") : fmt(t.exit)),
+      h("td", { class: sign(t.status === "open" ? L?.inr : t.pnl_inr) }, inr(t.status === "open" ? L?.inr : t.pnl_inr)),
+      h("td", { class: "l" }, t.status === "open" ? h("div", { class: "btn-row" }, h("button", { class: "btn small", type: "button", onclick: () => closeDialog(t, rerender) }, "Close"),
+        h("button", { class: "btn small", type: "button", onclick: () => tradeDialog(t, rerender) }, "Edit")) : (t.exit_reason || "closed")));
+  };
+  render(app,
+    pageHead("My index trades", LIVE ? "Multi-leg index trades with futures hedges, saved to your private database" : "Preview: changes are not saved"),
+    loadErr ? h("div", { class: "banner" }, `Could not load: ${loadErr}`) : null,
+    h("div", { class: "filters" }, h("button", { class: "btn primary", type: "button", onclick: () => idxTradeDialog({}, rerender) }, "Add an index trade")),
+    h("p", { class: "note" }, "Every 15 minutes the snapshot prices each leg from the option chain (futures from the futures feed; SENSEX from the option forward), shows P&L, net Greeks and a delta-hedge prompt when the net delta passes ±0.25 lot per lot of the trade (always shown once it reaches a full lot). It closes the trade at your stop or target in rupees, or at the time exit, if you set them; otherwise close it by hand. Use \"Add this hedge\" after you place the hedge so its P&L counts."),
+    h("div", { class: "stats" },
+      stat("Closed this FY", fy.length, `${open.length} open`),
+      stat("Win rate", fy.length ? `${Math.round((wins.length / fy.length) * 100)}%` : "–", `${wins.length} won, ${fy.length - wins.length} lost`),
+      stat("Net P&L", fy.length ? inr(net) : "–", "Index trades, this financial year", sign(net)),
+      stat("Average per trade", fy.length ? inr(net / fy.length) : "–"),
+      stat("Profit factor", loss < 0 ? (gain / Math.abs(loss)).toFixed(2) : "–")),
+    h("section", null, h("div", { class: "section-head" }, h("h2", null, `Open (${open.length})`)), open.length ? open.map(card) : h("p", { class: "empty" }, "No open index trades.")),
+    h("section", null, h("div", { class: "section-head" }, h("h2", null, `Closed (${closed.length})`)),
+      closed.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, closedTable)) : h("p", { class: "empty" }, "No closed index trades yet.")),
+    legacy.length ? h("section", null, h("div", { class: "section-head" }, h("h2", null, `Index futures, older form (${legacy.length})`), h("p", null, "Single-leg index futures trades saved before 23 Nov 2026; they still close at their stop, target or after 5 sessions.")),
+      h("div", { class: "panel" }, h("div", { class: "table-scroll" }, h("table", null,
+        h("thead", null, h("tr", null, ["Entry", "Index", "Side", "Entry", "Stop", "Target", "Now / exit", "P&L ₹", ""].map((c, i) => h("th", { class: [0, 1, 2, 8].includes(i) ? "l" : null }, c)))),
+        h("tbody", null, legacy.map(legacyRow)))))) : null);
+}
+
+// ------------------------------------------------------------------ tab: index track record
+async function viewIdxRecord(app) {
+  let rows = [], loadErr = null;
+  try { rows = await loadIdxIdeas(); } catch (e) { loadErr = e.message; }
+  const mode = state.irMode || "all", sym = state.irSym || "all";
+  const shown = rows.filter((r) => (mode === "all" || r.mode === mode) && (sym === "all" || r.symbol === sym));
+  const done = shown.filter((r) => r.status === "closed" && isNum(+r.pnl_inr) && r.pnl_inr !== null);
+  const openNow = shown.filter((r) => r.status === "open" || r.status === "pending");
+  const agg = (list) => {
+    const n = list.length, w = list.filter((r) => +r.pnl_inr > 0);
+    const gain = w.reduce((a, r) => a + +r.pnl_inr, 0), loss = list.filter((r) => +r.pnl_inr <= 0).reduce((a, r) => a + +r.pnl_inr, 0);
+    const rr = list.filter((r) => r.r_mult !== null && isNum(+r.r_mult));
+    return { n, win: n ? (w.length / n) * 100 : null, net: gain + loss, avg: n ? (gain + loss) / n : null,
+      pf: loss < 0 ? gain / Math.abs(loss) : null, r: rr.length ? rr.reduce((a, r) => a + +r.r_mult, 0) / rr.length : null };
+  };
+  const tot = agg(done);
+  const groupTable = (title, sub, keyFn, labelFn) => {
+    const g = {};
+    done.forEach((r) => { (g[keyFn(r)] ||= []).push(r); });
+    const keys = Object.keys(g).sort((a, b) => g[b].length - g[a].length);
+    if (!keys.length) return null;
+    return h("section", null, h("div", { class: "section-head" }, h("h2", null, title), sub ? h("p", null, sub) : null),
+      h("div", { class: "panel" }, h("div", { class: "table-scroll" }, h("table", null,
+        h("thead", null, h("tr", null, ["Group", "Finished", "Win rate", "Avg ₹ / lot", "Total ₹ / lot", "Avg R", "Profit factor"].map((c, i) => h("th", { class: i === 0 ? "l" : null }, c)))),
+        h("tbody", null, keys.map((k) => { const a = agg(g[k]); return h("tr", { style: "cursor:default" }, h("td", { class: "l name" }, labelFn(k)), h("td", null, a.n),
+          h("td", null, isNum(a.win) ? `${Math.round(a.win)}%` : "–"), h("td", { class: sign(a.avg) }, inr(a.avg)), h("td", { class: sign(a.net) }, inr(a.net)),
+          h("td", { class: sign(a.r) }, isNum(a.r) ? a.r.toFixed(2) : "–"), h("td", null, isNum(a.pf) ? a.pf.toFixed(2) : "–")); }))))));
+  };
+  const seg = (k, cur, opts) => h("div", { class: "seg", role: "group" }, opts.map(([v, l]) =>
+    h("button", { type: "button", "aria-pressed": String(cur === v), onclick: () => { state[k] = v; route(); } }, l)));
+  const legs = (r) => (r.legs || []).map((l) => `${l.action === "BUY" ? "B" : "S"} ${l.type === "FUT" ? "FUT" : `${fmt0(l.strike)}${l.type}`}`).join(" · ");
+  const logTable = h("table", null,
+    h("thead", null, h("tr", null, ["Logged", "Index", "Mode", "Idea", "View", "Filled", "Status", "P&L ₹ / lot", "R"].map((c, i) => h("th", { class: i < 7 ? "l" : null }, c)))),
+    h("tbody", null, shown.slice(0, 300).map((r) => {
+      const live = r.status === "open";
+      const pnl = r.status === "closed" ? +r.pnl_inr : live ? +r.last_pnl_inr : null;
+      return h("tr", { style: "cursor:default" }, h("td", { class: "l" }, when(r.logged_ts)), h("td", { class: "l name" }, r.symbol), h("td", { class: "l" }, r.mode),
+        h("td", { class: "l name" }, r.name || STRAT_NAME[r.strategy], (r.info || {}).best ? h("span", { class: "flag fno" }, "Best fit") : null, h("small", null, legs(r)),
+          (r.hedges || []).length ? h("small", null, `${r.hedges.length} delta hedge${r.hedges.length > 1 ? "s" : ""}`) : null),
+        h("td", { class: "l name" }, r.bias === "NEUTRAL" ? "No direction" : sideTag(r.bias), r.strength ? ` ${r.strength}` : "", h("small", null, `${isNum(+r.score) ? `${+r.score > 0 ? "+" : ""}${r.score}` : ""} · vol ${(r.info || {}).vol || "–"} · gamma ${(r.info || {}).gamma || "–"}`)),
+        h("td", { class: "l" }, r.entry_ts ? when(r.entry_ts) : "–"),
+        h("td", { class: "l" }, r.status === "closed" ? `${r.exit_reason} ${when(r.exit_ts)}` : r.status === "void" ? h("span", { class: "muted" }, `void: ${r.exit_reason || ""}`) : live ? `open (${when(r.last_ts)})` : "waiting for the next snapshot"),
+        h("td", { class: sign(pnl) }, isNum(pnl) ? inr(pnl) : "–"), h("td", null, r.status === "closed" && r.r_mult !== null ? (+r.r_mult).toFixed(2) : "–"));
+    })));
+  render(app,
+    pageHead("Index track record", "Every Suggested index trades idea that passed its checks, filled at the next 15-minute snapshot and closed by its own rules"),
+    loadErr ? h("div", { class: "banner" }, `Could not load: ${loadErr}`) : null,
+    h("div", { class: "filters" }, seg("irMode", mode, [["all", "All"], ["swing", "Swing"], ["intraday", "Intraday"]]),
+      h("select", { "aria-label": "Index", onchange: (e) => { state.irSym = e.target.value; route(); } },
+        [["all", "All indices"], ...SYMS.map((s2) => [s2, s2])].map(([v, l]) => h("option", { value: v, selected: v === sym || null }, l)))),
+    h("p", { class: "note" }, "One entry per day, mode, index, strategy and direction (not again while the same one is open). Filled at the next snapshot's prices, so there is no look-ahead. Closed at the stop or target (P&L per unit, or spot for the futures ideas), the time exit (intraday 3:15 pm; swing after 5 sessions or the day before expiry) or expiry. Delta-hedged ideas add a futures hedge at the forward price whenever the net delta passes ±0.25. Checked only every 15 minutes, so exits can be worse than their level. P&L is per 1 lot, before costs."),
+    h("div", { class: "stats" },
+      stat("Finished ideas", tot.n, `${openNow.length} open or waiting`),
+      stat("Win rate", isNum(tot.win) ? `${Math.round(tot.win)}%` : "–"),
+      stat("Average ₹ / lot", inr(tot.avg), null, sign(tot.avg)),
+      stat("Total ₹ / lot", tot.n ? inr(tot.net) : "–", "Sum over finished ideas", sign(tot.net)),
+      stat("Average R", isNum(tot.r) ? tot.r.toFixed(2) : "–", "P&L ÷ risk to the stop"),
+      stat("Profit factor", isNum(tot.pf) ? tot.pf.toFixed(2) : "–")),
+    groupTable("By strategy", "Which structures work", (r) => `${r.strategy}|${r.mode}`, (k) => { const [st, md] = k.split("|"); return `${STRAT_NAME[st] || st} · ${md}`; }),
+    groupTable("Best fit vs the others", "Was the top-ranked idea better?", (r) => ((r.info || {}).best ? "best" : "other"), (k) => (k === "best" ? "Best fit" : "Other ideas that passed")),
+    groupTable("By volatility regime", null, (r) => (r.info || {}).vol || "–", (k) => VOL_WORD[k] || k),
+    groupTable("By direction", null, (r) => `${r.bias}|${r.strength || ""}`, (k) => { const [b, s2] = k.split("|"); return b === "NEUTRAL" ? "No direction" : `${s2} ${b === "LONG" ? "long" : "short"}`; }),
+    groupTable("By index", null, (r) => r.symbol, (k) => k),
+    h("section", null, h("div", { class: "section-head" }, h("h2", null, `Ideas (${shown.length})`), h("p", null, "Newest first, up to 300")),
+      shown.length ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, logTable)) : h("p", { class: "empty" }, "No ideas logged yet. They appear from the first market-hours snapshot after supabase/013_index_greeks.sql has been run.")));
 }
 
 // ------------------------------------------------------------------ tab 5: my trades
@@ -947,7 +1250,7 @@ async function viewWatch(app) {
   const toTrade = (w) => tradeDialog({ kind: w.kind, symbol: w.symbol, side: w.side, entry: w.entry ?? undefined, stop: w.stop ?? undefined,
     target: w.target ?? undefined, lots: 1, lot_size: w.lot_size ?? undefined, expiry: w.expiry ?? undefined,
     method: w.method ?? undefined, source: w.source === "swing signal" ? "swing signal" : "watchlist",
-    notes: [w.method, w.notes].filter(Boolean).join("; ") }, async () => { try { await deleteWatch(w.id); } catch (e) { /* keep going */ } location.hash = "#/trades"; });
+    notes: [w.method, w.notes].filter(Boolean).join("; ") }, async () => { try { await deleteWatch(w.id); } catch (e) { /* keep going */ } location.hash = w.kind === "index" ? "#/itrades" : "#/trades"; });
   const table = (list) => h("table", null,
     h("thead", null, h("tr", null, ["Added", "Symbol", "Type", "Entry", "Stop", "Target", "Kept until", ""].map((c, i) =>
       h("th", { class: [0, 1, 2, 7].includes(i) ? "l" : null }, c)))),
@@ -961,7 +1264,7 @@ async function viewWatch(app) {
         h("td", { class: left <= 0 ? "neg" : null, title: "Removed automatically after this day" },
           `${new Date(`${w.expires_on}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}${left <= 0 ? " (last day)" : ` (${left} more day${left > 1 ? "s" : ""})`}`),
         h("td", { class: "l" }, h("div", { class: "btn-row nowrap" },
-          h("button", { class: "btn primary small", type: "button", onclick: () => toTrade(w) }, "Add to My trades"),
+          h("button", { class: "btn primary small", type: "button", onclick: () => toTrade(w) }, w.kind === "index" ? "Add to My index trades" : "Add to My stock trades"),
           h("button", { class: "btn small", type: "button", onclick: async () => { await deleteWatch(w.id); rerender(); } }, "Remove"))));
     })));
   const section = (side) => {
@@ -973,7 +1276,7 @@ async function viewWatch(app) {
   };
   render(app,
     pageHead("Watchlist", `Ideas you are watching. Each stays for ${WATCH_DAYS} market days after the day you added it, then it is removed.`),
-    h("p", { class: "note" }, "Add from the stock screener or the suggested index trades with “Move to watchlist”. “Add to My trades” opens the trade form with the saved levels; after you save, the idea leaves the watchlist. Prices shown are the levels when you added it; check the chart icon for the current price."),
+    h("p", { class: "note" }, "Add from the stock screener or the suggested index trades with “Move to watchlist”. “Add to My stock trades” (or My index trades) opens the trade form with the saved levels; after you save, the idea leaves the watchlist. Prices shown are the levels when you added it; check the chart icon for the current price."),
     section("Long"), section("Short"));
 }
 
@@ -1000,15 +1303,16 @@ function livePnl(t, tp) {
 async function viewTrades(app) {
   const all = await loadTrades();
   const [tpStock, tpIndex] = LIVE ? await Promise.all([doc("trade_prices_stock").catch(() => null), doc("trade_prices_index").catch(() => null)]) : [null, null];
-  const view = state.tradeView;
-  const trades = all.filter((t) => view === "all" || t.kind === view);
+  // 22 Nov 2026: stock trades only; index trades have their own tab (My Index Trades, #/itrades)
+  const view = "stock";
+  const trades = all.filter((t) => t.kind === view);
   const open = trades.filter((t) => t.status === "open"), closed = trades.filter((t) => t.status === "closed");
   const rerender = () => route();
   // closed trades older than 3 months are kept only as monthly totals (table trade_months)
   let archive = [];
   if (LIVE) {
     const { data, error } = await sb.from("trade_months").select("*").eq("book", "fno");
-    if (!error && data) archive = data.filter((r) => view === "all" || r.kind === view);
+    if (!error && data) archive = data.filter((r) => r.kind === view);
   }
   const blank = () => ({ n: 0, pctN: 0, w: 0, sum: 0, gain: 0, loss: 0, inrN: 0, inr: 0 });
   const addTrade = (g, t) => {
@@ -1107,14 +1411,12 @@ async function viewTrades(app) {
     h("thead", null, h("tr", null, ["Entry time", "Symbol", "Side", "Entry", "Stop", "Target", ...(isOpen ? ["Now", "P&L %", "P&L ₹"] : ["Exit", "Reason", "Net %", "P&L ₹"]), ""].map((c, i) =>
       h("th", { class: [0, 1, 2].includes(i) || c === "Reason" ? "l" : null }, c)))),
     h("tbody", null, rows.map((t) => row(t, isOpen))));
-  const viewSeg = h("div", { class: "seg", role: "group", "aria-label": "Show" }, [["all", "All"], ["stock", "Stocks"], ["index", "Index futures"]].map(([k, l]) =>
-    h("button", { type: "button", "aria-pressed": String(view === k), onclick: () => { state.tradeView = k; rerender(); } }, l)));
   render(app, 
-    pageHead("My trades", LIVE ? "Saved to your private database" : "Preview: changes are not saved"),
-    h("div", { class: "filters" }, viewSeg,
-      h("button", { class: "btn primary", type: "button", onclick: () => tradeDialog({}, rerender) }, "Add a trade"),
-      h("button", { class: "btn", type: "button", onclick: () => exportCsv(all) }, "Export CSV")),
-    h("p", { class: "note" }, "Open trades close automatically: stocks from the Price Action and Price+OI tabs only at the stop (close the rest by hand; the target is shown), older stock trades at the stop, target or after 5 sessions (hourly candles); index futures at the stop or target on the futures price (every 15 minutes) or after 5 sessions. \"Now\" is the price at the latest check: stocks every hour and when you press Run scan, index futures every 15 minutes. P&L ₹ = (sell − buy) × lots × lot size − charges (long: sell = exit, buy = entry; short: sell = entry, buy = exit). Stock P&L % is after 0.1% costs."),
+    pageHead("My stock trades", LIVE ? "Saved to your private database; index trades are in My Index Trades" : "Preview: changes are not saved"),
+    h("div", { class: "filters" },
+      h("button", { class: "btn primary", type: "button", onclick: () => tradeDialog({ kind: "stock" }, rerender) }, "Add a trade"),
+      h("button", { class: "btn", type: "button", onclick: () => exportCsv(trades) }, "Export CSV")),
+    h("p", { class: "note" }, "Open trades close automatically: stocks from the Price Action and Price+OI tabs only at the stop (close the rest by hand; the target is shown), older stock trades at the stop, target or after 5 sessions (hourly candles). \"Now\" is the price at the latest check: every hour and when you press Run scan. P&L ₹ = (sell − buy) × lots × lot size − charges (long: sell = exit, buy = entry; short: sell = entry, buy = exit). P&L % is after 0.1% costs."),
     h("div", { class: "section-head" }, h("h2", null, `This financial year · ${fyLabel(curFy)}`),
       h("p", null, `Closed trades from 1 Apr ${curFy} to 31 Mar ${curFy + 1}. On 1 April the totals start fresh and this year moves to “Year by year”.`)),
     stats,
@@ -1311,7 +1613,7 @@ async function viewRecord(app) {
     })));
 
   render(app,
-    pageHead("Track record", LIVE ? "Every Price Action and Price+OI signal, logged automatically" : "Preview: sample data"),
+    pageHead("Stock track records", LIVE ? "Every Price Action and Price+OI signal, logged automatically (index ideas: Index Track Record)" : "Preview: sample data"),
     h("p", { class: "intro" }, "Each idea is saved the first time a scan lists it, with its setup, score parts and warnings. Price+OI also saves setups that futures OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks. Later scans fill in what happened from the entry candle's open: the trade exits at the stop, at the 1:2 target, or at the close of the 5th session. If one candle reaches both the stop and the target, the order is unknown, so the signal is marked Unclear and left out of the averages. R = result ÷ the risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = the trade was at least 1R in profit at some point. Greyed rows have fewer than 20 finished signals: too few to judge. Base 3 (the third base after the EMA cross) is logged here only, for testing; it is not on the screener."),
     shown.length ? stats : h("p", { class: "empty" }, "No signals logged yet. New signals appear with the next stock scan."),
     all.length ? groupTable("Price Action", "Chart only. Stop, 1:2 target or 5 sessions", paSets) : null,
@@ -1408,7 +1710,7 @@ function viewReadme(app) {
         "The earlier 50 EMA cross rules (a solid candle crosses the 50 EMA, the day's futures build-up as the filter, stop at the candle or 10-candle swing, exit on a close back across the EMA) are not shown on the screener and, since 7 Nov 2026, are no longer logged in Track record.",
       ])),
 
-    sec("Track record", "Signal log: Price Action and Price+OI only (since 7 Nov 2026)",
+    sec("Stock Track Records", "Signal log: Price Action and Price+OI only (since 7 Nov 2026)",
       list([
         "Every idea from both tabs is saved the first time a scan lists it, with its setup, score parts and warnings; Price+OI also saves setups that OI did not confirm, and Price Action saves rejections and shakeouts that failed their checks.",
         "Later scans fill in the result from the entry candle's open: the stop, the 1:2 target, or the close of the 5th session, whichever comes first. If one candle reaches both the stop and the target, the order is unknown: the signal is marked Unclear and left out of win rate, R and profit factor.",
@@ -1416,27 +1718,55 @@ function viewReadme(app) {
         "R = result ÷ risk to the stop (target +2R, stop −1R). Net % is after 0.1% costs. Reached 1R = at least 1R in profit at some point. Groups with fewer than 20 finished signals are greyed out.",
       ])),
 
-    sec("Suggested index trades", "Swing or Intraday (dropdown at the top); Futures, Option buying, Option selling",
-      tbl(["Factor", "Score", "Reading"], [
-        ["OI shift, ATM ±2 strikes", "−1 to +1", "Change over the last 60 minutes. Put writing leads: +1 with call unwinding at resistance, +0.5 without. Call writing leads: −1 / −0.5."],
-        ["PCR (total OI)", "−1 to +1", "Above 1.20: +1 (above 1.60: +0.5, crowded). Below 0.80: −1 (below 0.50: −0.5). 0.85–1.15: neutral."],
-        ["PCR intraday slope", "−1 to +1", "Rising 0.03 or more per hour: +1; falling as much: −1. Needs 4+ snapshots over 45+ minutes."],
-        ["Change-in-OI PCR (day)", "−1 to +1", "Fresh puts vs fresh calls today: above 1.20: +1, below 0.80: −1."],
-        ["Futures OI build-up", "−1 to +1", "Long build-up +1, short covering +0.5, long unwinding −0.5, short build-up −1."],
+    sec("Suggested index trades", "Greeks + price engine since 23 Nov 2026; Swing or Intraday (dropdown), all 5 indices",
+      h("h3", { class: "readme-h" }, "1. Greeks from the free option chain"),
+      list([
+        "Black-76 on each expiry's forward price. Forward from put-call parity on the strikes nearest spot (F = K + (call − put) ÷ discount), so no dividend guess is needed and SENSEX works without a futures feed; the futures price, then spot, are fall-backs.",
+        "Time to expiry to 3:30 pm on expiry day (never under 15 minutes). One IV per strike, solved from the out-of-the-money option's LTP (calls at and above the forward, puts below); stale or missing prices are filled from the neighbours. Delta, gamma, theta (points per day) and vega (points per vol point) follow.",
+        "Chain readings: ATM IV; 25-delta skew (put IV − call IV at delta 0.25); call and put gamma walls (largest gamma × OI above / below the forward) and the pin strike.",
+      ]),
+      h("h3", { class: "readme-h" }, "2. Direction score (−100 to +100)"),
+      tbl(["Factor", "Weight", "Intraday", "Swing"], [
+        ["Price momentum", "25", "Spot move over the last 30 minutes (from the open in the first 30) in expected-move units; 1.5σ = full", "Today's move and the 3-day move, same units"],
+        ["Price structure", "20", "Place in the day's range, vs the open, vs yesterday's close", "Vs the 5- and 20-day averages of closes, and their slope"],
+        ["Writer delta flow", "20", "Change in OI × delta over the last 30 minutes, read as written (puts written / calls covered = bullish)", "The day's change in OI × delta"],
+        ["Futures build-up", "15", "Last 60 minutes (SENSEX: none, weights rescaled)", "Today"],
+        ["Put-skew change", "10", "25-delta skew vs 60 minutes ago: dearer puts = bearish", "Vs yesterday's last reading"],
+        ["IV vs price", "10", "Price down + IV up = fear (−1); price up + IV up = buyers chasing (+0.8); price up + IV easing = steady (+0.5); price down + IV easing = weak selling (−0.3)", "Same, vs yesterday"],
       ]),
       list([
-        "Total −5 to +5. LONG at +2.5 or more, SHORT at −2.5 or less; Strong at ±3.5 or beyond. The monthly expiry must be 7+ days away.",
-        "Futures levels by two methods. OI walls: stop at the put wall, target at the call wall (reverse for Short), valid when reward is at least 1.5 × risk. Volatility: 5-session expected move from ATM IV; stop 0.6 × that move, target 1.5 × the stop.",
-        "The day's official signal is saved at 3:15 pm (signal history).",
-        "Intraday view (14 Nov 2026): NIFTY and SENSEX only, weekly chain, direction from the intraday trend scale (Moderate, ±2 or more; below that no direction). Display only: nothing is logged or added to My Trades. Square off by 3:15 pm. Futures use the 1-session expected move (stop 0.5×, target 1.5× the stop).",
-        "Option buying: a long ATM call (bullish) or put (bearish). Stop at 30% of the premium for swing, 25% for intraday; the target premium assumes the index reaches the volatility target and the option moves half as much (delta 0.5). Fails when India VIX is 18 or more (premium expensive), a big OI wall sits before the target, futures do not confirm, or a swing has under 7 days to expiry.",
-        "Option selling (defined-risk spreads only): bull put spread when bullish, bear call spread when bearish, iron condor when there is no direction. The short strike is at the OI wall (put wall below, call wall above) or 0.8 expected moves from spot, whichever is farther; the hedge leg is 4 strikes beyond for swing, 2 for intraday. Fails when the credit is under 20% of the width, India VIX is 13 or less (thin premium) or rising 3% or more in the day, futures do not confirm, PCR is outside 0.85–1.15 for a condor, or it is expiry day (intraday). Take profit at 50% of the credit, cut at a cost of 2× the credit.",
-        "These thresholds are starting values and are untested against past results. They are all in desk/config.py (VIX_*, SELL_*, BUY_*, INTRADAY_*).",
+        "Each factor is −1 to +1; points = factor × weight, rescaled when a factor has no data yet. Moderate at ±30, Strong at ±55. A direction also needs price to agree: momentum or structure at least 0.15 the same way; otherwise the view stays neutral (\"positions lean … but price has not moved\").",
+        "Volatility: three votes — India VIX (≤13 cheap, ≥18 rich), ATM IV vs 10-day realised volatility (below 0.9× cheap, above 1.25× rich), VIX rank once 20 sessions are stored (≤25 cheap, ≥75 rich). Expanding when ATM IV rises 0.5 vol point in the window or India VIX is up 3%+ today; contracting the mirror.",
+        "Gamma regime: spot between the put and call gamma walls with the walls within 2.5 expected moves = range (moves tend to stall); spot beyond a wall = breakout (writers' hedging adds to the move); otherwise open.",
+      ]),
+      h("h3", { class: "readme-h" }, "3. Ideas (strikes picked by delta)"),
+      tbl(["Idea", "When it fits", "Exit"], [
+        ["Option buying (delta 0.55)", "A direction; IV not rich and not falling", "Stop 30% of the premium (intraday 25%), target 1.5× that"],
+        ["Debit spread (buy 0.55, sell 0.25)", "A direction; best when Moderate or IV is rich", "Stop 40% of the debit, target 1.5× that (max 90% of the width)"],
+        ["Credit spread (sell 0.30, buy 0.12)", "A direction; IV not cheap and not expanding; credit ≥ 20% of the width; short strike behind the gamma wall", "Take 50% of the credit; stop at a loss of 1× the credit"],
+        ["Futures + protective option (0.30)", "A direction, mainly Strong; hedge ≤ 35% of the expected move", "Stop on spot 0.6× (intraday 0.5×) the expected move, target 1.5× that"],
+        ["Futures + covered option (0.30)", "A direction with rich IV, not expanding", "Same spot stop / target"],
+        ["Iron condor (sell 0.20, wings 0.07)", "No direction; IV not cheap, not expanding; no gamma breakout", "Take 50% of the credit; stop at 1× the credit"],
+        ["Short strangle + wings, delta-hedged (0.25 / 0.05)", "No direction; IV rich, not expanding; no breakout", "As the condor; hedge with futures when |net delta| > 0.25 per lot"],
+        ["Long straddle, delta-hedged", "IV cheap, or volatility expanding, or a gamma breakout", "+25% / −20% of the debit (hedge P&L counts); hedge when |net delta| > 0.25"],
+      ]),
+      list([
+        "Every idea shows its legs with delta, net debit or credit, position Greeks per lot, maximum profit and loss and breakevens at expiry, and its checks. Ideas are ranked by fit; \"Best fit\" is the top one that passes. SENSEX futures legs use a synthetic future (ATM call bought, put sold), since there is no public SENSEX futures feed.",
+        "Swing needs 7+ days to expiry; time exit after 5 sessions or the day before expiry. Intraday squares off by 3:15 pm; after 2 pm new intraday ideas fail the time check.",
+        "The old 5-factor OI/PCR score is retired here (it lagged because every factor measured positioning, which follows price). The intraday trend scale on F&O index analysis still uses it.",
+        "All numbers are starting values in desk/config.py (EDGE_*, ST_*, DH_*, VIX_*, IVRV_*); the Index Track Record is there to test them.",
+      ])),
+
+    sec("Index Track Record", "Every Suggested index trades idea that passes its checks",
+      list([
+        "Logged the first time it appears: one per day, mode, index, strategy and direction, and not again while the same one is still open.",
+        "Filled at the next 15-minute snapshot's prices (no look-ahead), marked every 15 minutes from the chain, and closed by its own rules: stop / target (P&L per unit, or spot for the futures ideas), time exit, or expiry. Delta-hedged ideas add a futures hedge at the forward price whenever the net delta passes ±0.25.",
+        "P&L is per 1 lot, before costs. R = P&L ÷ risk to the stop. Exits are only checked every 15 minutes, so they can be worse than the level. An idea whose legs have no price at the fill is void.",
       ])),
 
     sec("Intraday trend scale (F&O index analysis)", "Every index; follows the card you click",
       list([
-        "The same five factors as Suggested index trades, read on the index's main chain: weekly for NIFTY and SENSEX, monthly for BANKNIFTY, FINNIFTY and MIDCPNIFTY (monthly expiries only, so readings are usually weaker). Futures build-up uses the last 60 minutes.",
+        "The original five OI factors (OI shift, PCR, PCR slope, change-in-OI PCR, futures build-up), read on the index's main chain: weekly for NIFTY and SENSEX, monthly for BANKNIFTY, FINNIFTY and MIDCPNIFTY (monthly expiries only, so readings are usually weaker). Futures build-up uses the last 60 minutes.",
         "SENSEX has no public futures feed, so its futures factor is 0 (4 factors in play).",
         "Total −5 to +5. Zones: Mild at ±1, Moderate at ±2, Strong at ±3.5. A trend score, not a probability; no trade is taken from it.",
       ])),
@@ -1447,18 +1777,25 @@ function viewReadme(app) {
         "Expiry day and expiry eve: OI readings are less reliable as positions close or roll.",
       ])),
 
-    sec("My trades", null,
+    sec("My Stock Trades", null,
       list([
         "Stock trades from the Price Action and Price+OI tabs close automatically only at the stop; you close the rest by hand (the target is shown). Older stock trades close at the stop, the target, or after 5 sessions (hourly candles).",
-        "Index futures trades close at the stop or target on the futures price (checked every 15 minutes), or after 5 sessions.",
-        "P&L ₹ = (sell − buy) × lots × lot size − charges. Stock P&L % is after 0.1% costs.",
+        "P&L ₹ = (sell − buy) × lots × lot size − charges. P&L % is after 0.1% costs.",
         "Totals at the top cover the current financial year (April–March) and start fresh each 1 April; completed years move to Year by year. Closed trades are locked; a trade you close by hand can still be edited or reopened until the 7:40 pm check (trades closed automatically lock at once).",
+      ])),
+
+    sec("My Index Trades", "Multi-leg index trades (23 Nov 2026)",
+      list([
+        "\"I took this trade\" on any idea opens the form with its legs; enter your real fills and lots. Stop and target are in rupees for the whole position, plus an optional time exit; the snapshot closes the trade when one is reached, otherwise close it by hand.",
+        "Every 15 minutes each leg is priced from the option chain (futures from the futures feed; SENSEX from the option forward). The card shows P&L, net delta in lots, theta, vega and gamma.",
+        "Delta hedge prompt: when the net delta passes ±0.25 lot per lot of the trade (shown always once it reaches a full lot), it suggests the futures lots to buy or sell. After you place it, \"Add this hedge\" records it so its P&L counts.",
+        "Older single-leg index futures trades are listed at the bottom and still close at their stop, target or after 5 sessions. Same lock rule as stock trades.",
       ])),
 
     sec("Timing", null,
       list([
         "Stock screener: about 4 minutes after each hourly candle closes (10:19 … 15:19, and 15:34), plus the Run scanner button.",
-        "Index analysis, option chain and suggested index trades: every 15 minutes, 9:15–15:30.",
+        "Index analysis, option chain, suggested index trades (with Greeks), Index Track Record and My Index Trades: every 15 minutes, 9:15–15:30.",
         "Sector boost, regime light and results dates come from the Sector Strength site's evening update.",
       ])));
 }
@@ -1484,6 +1821,8 @@ async function route() {
     else if (tab === "chain") await viewChain(app);
     else if (tab === "swing") await viewSwing(app);
     else if (tab === "trades") await viewTrades(app);
+    else if (tab === "itrades") await viewIdxTrades(app);
+    else if (tab === "irecord") await viewIdxRecord(app);
     else if (tab === "watch") await viewWatch(app);
     else if (tab === "record") await viewRecord(app);
     else if (tab === "readme") viewReadme(app);
@@ -1492,7 +1831,7 @@ async function route() {
     render(app, h("p", { class: "empty" }, `Could not load the data (${err.message}). Refresh to try again.`));
   }
   clearInterval(refreshTimer);
-  if (tab !== "trades" && tab !== "readme") refreshTimer = setInterval(() => { if (!document.getElementById("dlg").open) route(); }, 5 * 60 * 1000);
+  if (!["trades", "itrades", "readme"].includes(tab)) refreshTimer = setInterval(() => { if (!document.getElementById("dlg").open) route(); }, 5 * 60 * 1000);
 }
 
 (function restore() {

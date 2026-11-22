@@ -72,7 +72,7 @@ SWING_MAX_SESSIONS = 5            # journal: close index trades after 5 sessions
 # Suggested index trades has a Swing / Intraday dropdown; each index gets Futures, Option buying and
 # Option selling (defined-risk spreads) ideas from the chain (OI walls, IV), futures OI and India VIX.
 # Intraday is display only (no logging, no My Trades), square-off by 15:15.
-INTRADAY_INDICES = ["NIFTY", "SENSEX"]   # indices with a weekly chain
+INTRADAY_INDICES = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]   # 22 Nov 2026: all 5 (monthly chain where no weekly)
 INTRADAY_MIN_SCORE = 2.0          # trend scale (+/-5): Moderate or stronger counts as a direction
 INTRADAY_DAYS = 1                 # expected move over 1 session
 INTRADAY_STOP_EM = 0.5            # futures / option-buy stop = 0.5 x the 1-day expected move
@@ -87,6 +87,62 @@ SELL_EM_MULT = 0.8                # short strike at the OI wall or 0.8 expected 
 SELL_MIN_CREDIT = 0.20            # credit at least 20% of the spread width
 SELL_STOP_MULT = 2.0              # close the spread if it costs 2x the credit received to close
 SELL_PROFIT_EXIT = 0.5            # take profit at 50% of the credit
+
+# ------------------------------------------------------------------ Greeks engine (22 Nov 2026: desk/greeks.py, edge.py, strategies.py)
+# Suggested index trades and the Index Track Record use these; the old 5-factor swing score is retired.
+RISK_FREE = 0.065                 # India 91-day T-bill area; only discounting, small effect
+GREEKS_MIN_T_MIN = 15             # time to expiry never below 15 minutes (expiry-day IV blows up)
+IV_MIN, IV_MAX = 0.01, 3.0        # IV solver bounds (1% .. 300%)
+IV_OUTLIER = 2.5                  # a strike's IV this far from its neighbours' median = stale LTP, dropped
+FWD_MAX_GAP = 0.05                # forward more than 5% from spot = bad prices, fall back
+GREEKS_HIST_DAYS = 400            # compact Greeks history (ATM IV, skew, walls, VIX) kept this long
+
+# Direction score (-100..+100): weighted factors, each -1..+1. Price leads, positioning confirms.
+EDGE_WEIGHTS = {"momentum": 25, "structure": 20, "flow": 20, "futures": 15, "skew": 10, "ivpx": 10}
+EDGE_MODERATE = 30                # |score| >= 30: Moderate direction
+EDGE_STRONG = 55                  # |score| >= 55: Strong
+EDGE_PRICE_GATE = 0.15            # a direction needs momentum or structure at least 0.15 the same way
+MOM_LOOKBACK_MIN = 30             # intraday momentum: spot move over the last 30 minutes ...
+MOM_FULL_Z = 1.5                  # ... in expected-move units; 1.5 sigma = full score
+FLOW_LOOKBACK_MIN = 30            # intraday writer flow: change in OI over the last 30 minutes
+FUT_LOOKBACK_MIN = 60             # intraday futures build-up window
+SKEW_LOOKBACK_MIN = 60            # intraday skew / IV change window
+SKEW_FULL = 1.0                   # 25-delta risk reversal change of 1 vol point = full score
+IV_MOVE = 0.3                     # ATM IV change (vol points) that counts as rising / falling
+SESSION_MIN = 375                 # 09:15-15:30
+TRADING_DAYS = 252
+
+# Volatility regime: VIX level, ATM IV vs 10-day realised volatility, VIX rank (once 20+ sessions are stored)
+RV_DAYS = 10
+IVRV_CHEAP, IVRV_RICH = 0.90, 1.25
+VIX_RANK_MIN_DAYS = 20
+VIX_RANK_CHEAP, VIX_RANK_RICH = 25, 75
+VOL_EXPAND_IV = 0.5               # ATM IV up 0.5 vol point (window above) or VIX up VIX_RISE_PCT = expanding
+GAMMA_RANGE_EM = 2.5              # call and put gamma walls within 2.5 expected moves = a range
+
+# Strategy legs (target |delta|) and exits. All P&L rules are per unit of the structure.
+ST_BUY_DELTA = 0.55               # option buying: slightly in the money
+ST_DEBIT_SHORT_DELTA = 0.25       # debit spread: sell this delta
+ST_CREDIT_SHORT_DELTA = 0.30      # credit spread short leg
+ST_CREDIT_WING_DELTA = 0.12       # credit spread hedge leg
+ST_CONDOR_SHORT_DELTA = 0.20
+ST_CONDOR_WING_DELTA = 0.07
+ST_STRANGLE_DELTA = 0.25          # delta-hedged short strangle (with wings)
+ST_STRANGLE_WING_DELTA = 0.05
+ST_HEDGE_PUT_DELTA = 0.30         # futures + protective option
+ST_COVER_DELTA = 0.30             # futures + covered option
+ST_STOP_EM = {"swing": 0.6, "intraday": 0.5}    # futures stop = this x the expected move
+ST_TARGET_R = 1.5                 # target = 1.5 x the risk to the stop
+ST_BUY_STOP = {"swing": 0.30, "intraday": 0.25}  # option buying: stop at this share of the premium lost
+ST_DEBIT_STOP = 0.40              # debit spread: stop at 40% of the debit lost
+ST_CREDIT_TP = 0.50               # credit structures: take profit at 50% of the credit
+ST_CREDIT_SL = 1.00               # ... stop when the loss equals 1 x the credit (cost to close = 2x)
+ST_STRADDLE_TP, ST_STRADDLE_SL = 0.25, 0.20     # long straddle: +25% / -20% of the debit (hedge P&L included)
+ST_MIN_CREDIT_WIDTH = 0.20        # credit at least 20% of the width
+ST_HEDGE_COST_MAX = 0.35          # protective option costs at most 35% of the expected move
+ST_SWING_MIN_DTE = 7              # swing ideas need 7+ calendar days to expiry
+DH_BAND = 0.25                    # delta-hedged ideas: hedge when |net delta| > 0.25 per lot of the structure
+INDEX_IDEA_SESSIONS = 5           # swing ideas: time exit after 5 sessions (or the day before expiry)
 
 # ------------------------------------------------------------------ NIFTY intraday trend scale (+/-5)
 TREND_ZONES = [(3.5, "Strong"), (2.0, "Moderate"), (1.0, "Mild")]

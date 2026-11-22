@@ -421,3 +421,7 @@ details.run > .panel { margin-top: 4px; }
 
 /* screener: Price Action / Price+OI switch next to the title */
 .head-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* Suggested index trades: ideas table (22 Nov 2026) */
+.ideas-tbl td small { display: block; }
+.ideas-tbl td { vertical-align: top; }
