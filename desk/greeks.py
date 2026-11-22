@@ -20,6 +20,9 @@ Chain-wide readings:
     call_wall   strike at/above F with the largest call gamma x OI (where call writers'
                 hedging is heaviest); put_wall the mirror below F; pin = largest total
                 gamma x OI near spot
+    writer_net  writers' net delta across all open OI, -1..+1 (+ = put writing outweighs
+                call writing: writers positioned for the index to hold up); stored in
+                greeks_hist for the Option chain tab's Greeks trend
     writer_flow delta-weighted change in OI: added OI is read as written (index options in
                 India are dominated by writers). Writers short calls hold -delta, short puts
                 +delta. Result -1..+1: + = writers adding bullish exposure (puts written /
@@ -195,8 +198,12 @@ def chain_greeks(chain: pd.DataFrame, spot: float, expiry: date, now: datetime,
     put_wall = float(dn.loc[gx_p[dn.index].idxmax(), "strike"]) if len(dn) and gx_p[dn.index].max() > 0 else None
     tot = gx_c + gx_p
     pin = float(df.loc[tot.idxmax(), "strike"]) if tot.max() > 0 else None
+    wc, wp = -(df.ce_oi * df.ce_delta), -(df.pe_oi * df.pe_delta)      # writers short every open option
+    gross = float(wc.abs().sum() + wp.abs().sum())
+    writer_net = float(wc.sum() + wp.sum()) / gross if gross else None
     return df, {"fwd": F, "fwd_src": fsrc, "T": T, "atm_iv": atm * 100 if atm else None,
-                "rr25": rr, "iv_src": src, "call_wall": call_wall, "put_wall": put_wall, "pin": pin}
+                "rr25": rr, "iv_src": src, "call_wall": call_wall, "put_wall": put_wall, "pin": pin,
+                "writer_net": writer_net}
 
 
 def writer_flow(g: pd.DataFrame, past: pd.DataFrame | None) -> tuple[float, dict]:

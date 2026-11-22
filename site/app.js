@@ -237,8 +237,16 @@ function timeChart(cfg) {
       svg.append(s("line", { x1: m.l, x2: W - m.r, y1: y(r.y), y2: y(r.y), stroke: css("--muted"), "stroke-width": 1, opacity: 0.6 }));
       svg.append(s("text", { x: W - m.r - 2, y: y(r.y) - 4, "text-anchor": "end", class: "axis-text" }, r.label));
     }
-    for (const i of dayTicks(cfg.xs, Math.max(3, Math.floor(iw / 70)))) {
-      svg.append(s("text", { x: x(i), y: H - 6, "text-anchor": "middle", class: "axis-text" }, dayLabel(cfg.xs[i])));
+    if (cfg.timeTicks) {          // intraday: hh:mm labels, the date where a new day starts
+      const every = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(iw / 70))));
+      for (let i = 0; i < n; i += every) {
+        const t = String(cfg.xs[i]), newDay = i > 0 && t.slice(0, 10) !== String(cfg.xs[i - 1]).slice(0, 10);
+        svg.append(s("text", { x: x(i), y: H - 6, "text-anchor": i === 0 ? "start" : "middle", class: "axis-text" }, newDay ? dayLabel(t) : t.slice(11, 16)));
+      }
+    } else {
+      for (const i of dayTicks(cfg.xs, Math.max(3, Math.floor(iw / 70)))) {
+        svg.append(s("text", { x: x(i), y: H - 6, "text-anchor": "middle", class: "axis-text" }, dayLabel(cfg.xs[i])));
+      }
     }
     if (cfg.bars) {
       const ser = cfg.series[0], bw = Math.max(1, Math.min(14, iw / n - 1));
@@ -755,6 +763,58 @@ function factorTable(factors) {
 }
 
 // ------------------------------------------------------------------ tab 3: option chain
+/* Greeks trend (Option chain tab, 22 Nov 2026): table greeks_hist, one row per chain per 15-minute snapshot. */
+async function greeksHist(sym, expiry, since) {
+  if (!LIVE) {
+    const r = await fetch("sample/greeks_hist.json", { cache: "no-cache" });
+    const all = r.ok ? await r.json() : [];
+    return all.filter((x) => x.symbol === sym && String(x.expiry) === expiry && String(x.ts) >= since);
+  }
+  const { data, error } = await sb.from("greeks_hist").select("ts,spot,fwd,atm_iv,rr25,call_wall,put_wall,pin,vix,writer_net")
+    .eq("symbol", sym).eq("expiry", expiry).gte("ts", since).order("ts").limit(2000);
+  if (error) throw new Error(/greeks_hist|does not exist|schema cache/i.test(error.message)
+    ? "the Greeks history table is not set up yet (run supabase/013_index_greeks.sql in Supabase)" : error.message);
+  return data;
+}
+function greeksTrend(sym, expiry, rows, err) {
+  const range = state.gtRange || "today";
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Range" }, [["today", "Latest session"], ["5d", "Last 5 sessions"]].map(([k, l]) =>
+    h("button", { type: "button", "aria-pressed": String(range === k), onclick: () => { state.gtRange = k; route(); } }, l)));
+  const head = h("div", { class: "section-head", style: "margin-top:18px" }, h("h2", null, `Greeks trend · ${sym} ${dayLabel(expiry)}`),
+    h("p", null, "From the option chain every 15 minutes (Black-76; see Readme)"));
+  if (err) return h("section", null, head, h("div", { class: "banner" }, `Could not load: ${err}`));
+  if (!rows.length) return h("section", null, head, h("div", { class: "filters" }, seg),
+    h("p", { class: "empty" }, "No Greeks readings for this expiry yet: they start with the first 15-minute snapshot after supabase/013_index_greeks.sql is run."));
+  const xs = rows.map((r) => r.ts);
+  const col = (k) => rows.map((r) => (isNum(r[k]) ? +r[k] : null));
+  const last = rows[rows.length - 1], first = rows[0];
+  const chg = (k, d = 2) => (isNum(last[k]) && isNum(first[k]) ? `${last[k] - first[k] >= 0 ? "+" : ""}${(last[k] - first[k]).toFixed(d)}` : "–");
+  const cSpot = css("--s1"), cCall = css("--q-lagging"), cPut = css("--q-leading"), cPin = css("--q-weakening"), cIv = css("--s2"), cVix = css("--s1");
+  const base = { xs, timeTicks: range === "today", height: 170 };
+  const charts = h("div", { class: "charts" },
+    chartCard("Spot and gamma walls", "Call wall = largest call gamma × OI above; put wall = largest put gamma × OI below; pin = largest total. Spot between the walls = range; beyond a wall = breakout.",
+      timeChart({ ...base, series: [{ name: "Spot", values: col("spot"), color: cSpot }, { name: "Call wall", values: col("call_wall"), color: cCall },
+        { name: "Put wall", values: col("put_wall"), color: cPut }, { name: "Pin", values: col("pin"), color: cPin }], fmt: (v) => fmt0(v) }),
+      legend([["Spot", cSpot], ["Call wall", cCall], ["Put wall", cPut], ["Pin", cPin]])),
+    chartCard("ATM IV and India VIX", `Rising = options getting dearer (fear or demand); falling = premium melting. ATM IV ${chg("atm_iv")} vol pts over the range.`,
+      timeChart({ ...base, series: [{ name: "ATM IV %", values: col("atm_iv"), color: cIv }, { name: "India VIX", values: col("vix"), color: cVix }],
+        fmt: (v) => (isNum(v) ? v.toFixed(2) : "–"), tickFmt: (v) => v.toFixed(1) }),
+      legend([["ATM IV %", cIv], ["India VIX", cVix]])),
+    chartCard("25-delta put skew", `Put IV − call IV at delta 0.25, vol points. Rising = downside protection in demand (bearish tilt); falling = calm or bullish. Change ${chg("rr25")}.`,
+      timeChart({ ...base, series: [{ name: "Put skew", values: col("rr25"), color: cIv }],
+        fmt: (v) => (isNum(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}` : "–"), tickFmt: (v) => v.toFixed(1) })),
+    chartCard("Writers' net delta", `All open OI read as written, −1 to +1. Above 0 = put writing outweighs call writing (writers want the index to hold up); below 0 = the reverse. Change ${chg("writer_net")}.`,
+      timeChart({ ...base, series: [{ name: "Writers' net delta", values: col("writer_net"), color: cSpot }], refs: [{ y: 0, label: "0" }],
+        fmt: (v) => (isNum(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}` : "–"), tickFmt: (v) => v.toFixed(1) })));
+  return h("section", null, head, h("div", { class: "filters" }, seg),
+    h("div", { class: "stats" },
+      stat("ATM IV", isNum(last.atm_iv) ? `${(+last.atm_iv).toFixed(1)}%` : "–", `${chg("atm_iv")} over the range`),
+      stat("25Δ put skew", isNum(last.rr25) ? `${last.rr25 >= 0 ? "+" : ""}${(+last.rr25).toFixed(2)}` : "–", `${chg("rr25")} over the range`),
+      stat("Gamma walls", `${fmt0(last.put_wall)} / ${fmt0(last.call_wall)}`, `Pin ${fmt0(last.pin)}`),
+      stat("Writers' net delta", isNum(last.writer_net) ? `${last.writer_net >= 0 ? "+" : ""}${(+last.writer_net).toFixed(2)}` : "–", `${chg("writer_net")} over the range`)),
+    h("div", { class: "panel" }, charts));
+}
+
 async function viewChain(app) {
   const d = await doc("option_chains");
   if (!d) return render(app, pageHead("Option chain", null), h("p", { class: "empty" }, "No snapshot yet."));
@@ -792,6 +852,18 @@ async function viewChain(app) {
         h("td", { class: "k" }, fmt0(k)),
         cell(r, "pe_iv", "pe"), cell(r, "pe_ltp", "pe"), cell(r, "pe_coi", "pe"), cell(r, "pe_oi", "pe"));
     })));
+  // last 5 market days; "Latest session" keeps only the newest day present (weekends and holidays show the last session)
+  let since = istDate();
+  for (let k = 0; k < 6; k++) since = prevMarketDay(since);
+  let gRows = [], gErr = null;
+  try { gRows = await greeksHist(state.ocSym, c.expiry, since); } catch (e) { gErr = e.message; }
+  if ((state.gtRange || "today") === "today" && gRows.length) {
+    const lastDay = String(gRows[gRows.length - 1].ts).slice(0, 10);
+    gRows = gRows.filter((r) => String(r.ts).slice(0, 10) === lastDay);
+  } else if (gRows.length) {
+    const days = [...new Set(gRows.map((r) => String(r.ts).slice(0, 10)))].slice(-5);
+    gRows = gRows.filter((r) => String(r.ts).slice(0, 10) >= days[0]);
+  }
   const ceT = rows.reduce((a, r) => a + r[ix.ce_oi], 0), peT = rows.reduce((a, r) => a + r[ix.pe_oi], 0);
   const ceC = rows.reduce((a, r) => a + r[ix.ce_coi], 0), peC = rows.reduce((a, r) => a + r[ix.pe_coi], 0);
   render(app, 
@@ -805,7 +877,8 @@ async function viewChain(app) {
       stat("Max pain", fmt0(c.max_pain), `${c.dte} days to expiry`),
       stat("ATM IV", isNum(c.atm_iv) ? `${c.atm_iv.toFixed(1)}%` : "–", `Calls ${compact(ceT)} / puts ${compact(peT)} OI`)),
     h("div", { class: "panel" }, h("p", { class: "sub" }, "Shaded bars show OI relative to the largest on screen; outlined cells are the support and resistance walls; the thick line marks the ATM strike."),
-      h("div", { class: "table-scroll" }, table)));
+      h("div", { class: "table-scroll" }, table)),
+    greeksTrend(state.ocSym, c.expiry, gRows, gErr));
 }
 
 // ------------------------------------------------------------------ tab 4: suggested index trades
@@ -857,8 +930,11 @@ function ideaRows(view, lots, took) {
     }))));
 }
 
+const ENGINE_START = "2026-11-23";   // first market day of the Greeks engine; older rows used the 5-factor score (±5)
 async function viewSwing(app) {
-  const [d, hist, events] = await Promise.all([doc("swing_signals"), swingHistory(), swingEvents()]);
+  const [d, histAll, eventsAll] = await Promise.all([doc("swing_signals"), swingHistory(), swingEvents()]);
+  const hist = histAll.filter((r) => String(r.day) >= ENGINE_START);
+  const events = eventsAll.filter((e) => String(e.ts).slice(0, 10) >= ENGINE_START);
   if (!d) return render(app, pageHead("Suggested index trades", null), h("p", { class: "empty" }, "No snapshot yet."));
   const mode = state.swingMode === "intraday" ? "intraday" : "swing";
   const lots = d.lot_sizes || {};
@@ -925,9 +1001,9 @@ async function viewSwing(app) {
     modeBar,
     h("p", { class: "intro" }, intro),
     cards,
-    mode === "swing" ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Directions as they formed"), h("p", null, "Last 8 days, swing view")),
-      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing direction has formed yet.")) : null,
-    mode === "swing" && histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days"), h("p", null, "Scores before 23 Nov 2026 are the old 5-factor score (±5)")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
+    mode === "swing" ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "Directions as they formed"), h("p", null, "Last 8 days, swing view, Greeks engine only")),
+      setupTable ? h("div", { class: "panel" }, h("div", { class: "table-scroll" }, setupTable)) : h("p", { class: "empty" }, "No swing direction has formed yet with the Greeks engine.")) : null,
+    mode === "swing" && histTable ? h("section", null, h("div", { class: "section-head" }, h("h2", null, "3:15 pm signals, recent days"), h("p", null, "Greeks engine, from 23 Nov 2026")), h("div", { class: "panel" }, h("div", { class: "table-scroll" }, histTable))) : null);
 }
 
 // ------------------------------------------------------------------ index trades data (My Index Trades, Index Track Record)
@@ -1723,7 +1799,8 @@ function viewReadme(app) {
       list([
         "Black-76 on each expiry's forward price. Forward from put-call parity on the strikes nearest spot (F = K + (call − put) ÷ discount), so no dividend guess is needed and SENSEX works without a futures feed; the futures price, then spot, are fall-backs.",
         "Time to expiry to 3:30 pm on expiry day (never under 15 minutes). One IV per strike, solved from the out-of-the-money option's LTP (calls at and above the forward, puts below); stale or missing prices are filled from the neighbours. Delta, gamma, theta (points per day) and vega (points per vol point) follow.",
-        "Chain readings: ATM IV; 25-delta skew (put IV − call IV at delta 0.25); call and put gamma walls (largest gamma × OI above / below the forward) and the pin strike.",
+        "Chain readings: ATM IV; 25-delta skew (put IV − call IV at delta 0.25); call and put gamma walls (largest gamma × OI above / below the forward) and the pin strike; writers' net delta (all open OI read as written, −1 to +1).",
+        "Option chain tab, Greeks trend (22 Nov 2026): for the chosen index and expiry, the latest session or the last 5 sessions of spot with the gamma walls and pin, ATM IV with India VIX, the 25-delta put skew, and writers' net delta (table greeks_hist, every 15 minutes).",
       ]),
       h("h3", { class: "readme-h" }, "2. Direction score (−100 to +100)"),
       tbl(["Factor", "Weight", "Intraday", "Swing"], [

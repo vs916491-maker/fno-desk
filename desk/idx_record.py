@@ -293,5 +293,5 @@ def greeks_rows(ts: str, gchains: dict, kinds: dict, vix: float | None) -> list[
         rows.append({"ts": ts, "symbol": sym, "expiry": exp, "kind": kinds.get((sym, exp)), "spot": info.get("spot"),
                      "fwd": info.get("fwd"), "atm_iv": info.get("atm_iv"), "rr25": info.get("rr25"),
                      "call_wall": info.get("call_wall"), "put_wall": info.get("put_wall"), "pin": info.get("pin"),
-                     "vix": vix})
+                     "writer_net": info.get("writer_net"), "vix": vix})
     return rows

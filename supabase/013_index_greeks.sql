@@ -10,8 +10,10 @@ create table if not exists public.greeks_hist (
   id bigserial primary key,
   ts timestamp not null, symbol text not null, expiry date not null, kind text,
   spot double precision, fwd double precision, atm_iv double precision, rr25 double precision,
-  call_wall double precision, put_wall double precision, pin double precision, vix double precision
+  call_wall double precision, put_wall double precision, pin double precision, vix double precision,
+  writer_net double precision               -- writers' net delta of all open OI, -1..+1 (Option chain: Greeks trend)
 );
+alter table public.greeks_hist add column if not exists writer_net double precision;
 create index if not exists greeks_hist_lookup on public.greeks_hist (symbol, expiry, ts);
 create index if not exists greeks_hist_ts on public.greeks_hist (ts);
 
