@@ -18,7 +18,6 @@ One website combining the F&O stock screener and the index OI desk. Cloud-only: 
 | My Index Trades (`#/itrades`) | Multi-leg index trades (table `index_trades`) + futures hedges you add; live P&L, net delta (lots), theta, vega, gamma and a delta-hedge prompt (doc `index_trade_marks`); auto-close at stop / target ₹ or time exit if set. Older single-leg index futures trades (`trades` kind index) listed at the bottom, closing as before | every 15 min |
 | Readme (`#/readme`) | Current rules and scores in plain words (static text in `viewReadme` in `site/app.js`: **update it when a rule changes**) | — |
 | Stock Track Records (`#/record`) | Renamed 22 Nov 2026. Signal log (Supabase `signal_log`), current rules only (7 Nov 2026): Price Action and Price+OI ideas + their rejected/failed-check setups, grouped by setup type; exits stop, 1:2 target or 5 sessions; stop+target in one candle = "unclear", left out of averages | with each stock scan |
-
 | Index Track Record (`#/irecord`) | Table `index_ideas`: every passing Suggested-index-trades idea, filled at the next snapshot, closed by its rules; summaries by strategy, best fit vs others, volatility regime, direction, index | every 15 min |
 
 ## Main files
