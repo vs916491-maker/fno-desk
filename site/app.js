@@ -811,7 +811,7 @@ function greeksTrend(sym, expiry, rows, err) {
   const range = state.gtRange || "today";
   const seg = h("div", { class: "seg", role: "group", "aria-label": "Range" }, [["today", "Latest session"], ["5d", "Last 5 sessions"]].map(([k, l]) =>
     h("button", { type: "button", "aria-pressed": String(range === k), onclick: () => { state.gtRange = k; route(); } }, l)));
-  const head = h("div", { class: "section-head", style: "margin-top:18px" }, h("h2", null, `Greeks trend · ${sym} ${dayLabel(expiry)}`),
+  const head = h("div", { class: "section-head", style: "margin-top:8px" }, h("h2", null, `Greeks trend · ${sym} ${dayLabel(expiry)}`),
     h("p", null, "From the option chain every 15 minutes (Black-76; see Readme)"));
   if (err) return h("section", null, head, h("div", { class: "banner" }, `Could not load: ${err}`));
   if (!rows.length) return h("section", null, head, h("div", { class: "filters" }, seg),
@@ -912,6 +912,8 @@ async function viewChain(app) {
     pageHead("Option chain", `Snapshot ${when(c.ts)}`),
     h("div", { class: "filters" }, h("span", { class: "filter-label" }, "Index"), symSel, h("span", { class: "filter-label" }, "Expiry"), expSel,
       h("label", { class: "toggle" }, h("input", { type: "checkbox", checked: state.ocAll || null, onchange: (e) => { state.ocAll = e.target.checked; route(); } }), "All strikes")),
+    greeksTrend(state.ocSym, c.expiry, gRows, gErr),
+    h("div", { class: "section-head", style: "margin-top:22px" }, h("h2", null, `Option chain · ${state.ocSym} ${dayLabel(c.expiry)}`), h("p", null, `Snapshot ${when(c.ts)}`)),
     h("div", { class: "stats", style: "margin-top:12px" },
       stat("Spot", fmt(c.spot), `ATM ${fmt0(rows[atmI][0])}`),
       stat("PCR (total OI)", isNum(c.pcr) ? c.pcr.toFixed(2) : "–", `Change-in-OI PCR ${ceC > 0 ? (peC / ceC).toFixed(2) : "–"}`),
@@ -919,8 +921,7 @@ async function viewChain(app) {
       stat("Max pain", fmt0(c.max_pain), `${c.dte} days to expiry`),
       stat("ATM IV", isNum(c.atm_iv) ? `${c.atm_iv.toFixed(1)}%` : "–", `Calls ${compact(ceT)} / puts ${compact(peT)} OI`)),
     h("div", { class: "panel" }, h("p", { class: "sub" }, "Shaded bars show OI relative to the largest on screen; outlined cells are the support and resistance walls; the thick line marks the ATM strike."),
-      h("div", { class: "table-scroll" }, table)),
-    greeksTrend(state.ocSym, c.expiry, gRows, gErr));
+      h("div", { class: "table-scroll" }, table)));
 }
 
 // ------------------------------------------------------------------ tab 4: suggested index trades
