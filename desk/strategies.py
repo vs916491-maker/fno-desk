@@ -166,11 +166,14 @@ def build_ideas(view: dict, g: pd.DataFrame, info: dict, fut: dict | None, level
     if side:
         kind, okind = ("CE", "PE") if side > 0 else ("PE", "CE")
         word = "call" if side > 0 else "put"
-        wall = gam.get("call_wall") if side > 0 else gam.get("put_wall")
+        # obstacle = the OI wall in the trade's way (max call OI above for longs, max put OI below for shorts).
+        # Gamma walls are not used here: gamma x OI peaks at the strikes next to spot, so one sits
+        # before almost every target (23 Nov 2026: that failed nearly every directional idea).
+        wall = (levels or {}).get("resistance") if side > 0 else (levels or {}).get("support")
         tgt_spot = spot + side * config.ST_TARGET_R * stop_em * em
         blocked = bool(wall and ((side > 0 and spot < wall < tgt_spot) or (side < 0 and tgt_spot < wall < spot)))
-        wall_chk = _check(f"{word.title()} gamma wall {wall:,.0f} sits before the target {tgt_spot:,.0f}" if blocked
-                          else "No gamma wall before the target", not blocked)
+        wall_chk = _check(f"{'Call' if side > 0 else 'Put'} OI wall {wall:,.0f} sits before the target {tgt_spot:,.0f}" if blocked
+                          else f"No OI wall before the target {tgt_spot:,.0f}", not blocked)
         # 1. option buying
         L = opt_leg(g, kind, config.ST_BUY_DELTA, "BUY", exp)
         if L:
@@ -229,10 +232,13 @@ def build_ideas(view: dict, g: pd.DataFrame, info: dict, fut: dict | None, level
             P = opt_leg(g, okind, config.ST_HEDGE_PUT_DELTA, "BUY", exp)
             if P:
                 legs = F_legs + [P]
-                cost_ok = P["ltp"] <= config.ST_HEDGE_COST_MAX * em
+                # the hedge is sold back on exit, so its real cost is the time decay over the hold
+                hold_days = 1 if mode == "intraday" else 7
+                carry = abs(P["theta"]) * hold_days
+                cost_ok = carry <= config.ST_HEDGE_CARRY_MAX * em
                 fit = {("Strong", "cheap"): 90, ("Strong", "normal"): 80}.get((strength, V), 70 if G.startswith("breakout") else 55)
                 add("fut_protect", f"{'Long' if side > 0 else 'Short'} futures + buy {P['strike']:,.0f} {okind}", legs,
-                    [_check(f"Hedge costs {P['ltp']:,.0f} = {P['ltp'] / em * 100:.0f}% of the expected move (max {config.ST_HEDGE_COST_MAX * 100:.0f}%)", cost_ok),
+                    [_check(f"Hedge decay {carry:,.0f} over the hold = {carry / em * 100:.0f}% of the expected move (max {config.ST_HEDGE_CARRY_MAX * 100:.0f}%)", cost_ok),
                      wall_chk, dte_check()], fit,
                     f"Futures for the full move; the {'put' if side > 0 else 'call'} caps the loss if the view is wrong."
                     + (" SENSEX has no futures feed: the future is a synthetic (ATM call and put)." if F_legs[0]["type"] != "FUT" else ""),

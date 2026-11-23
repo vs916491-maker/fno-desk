@@ -139,7 +139,9 @@ ST_CREDIT_TP = 0.50               # credit structures: take profit at 50% of the
 ST_CREDIT_SL = 1.00               # ... stop when the loss equals 1 x the credit (cost to close = 2x)
 ST_STRADDLE_TP, ST_STRADDLE_SL = 0.25, 0.20     # long straddle: +25% / -20% of the debit (hedge P&L included)
 ST_MIN_CREDIT_WIDTH = 0.20        # credit at least 20% of the width
-ST_HEDGE_COST_MAX = 0.35          # protective option costs at most 35% of the expected move
+ST_HEDGE_CARRY_MAX = 0.15         # protective option: its time decay over the hold (1 day intraday, 7 days swing)
+                                  # at most 15% of the expected move (23 Nov 2026; was the full premium <= 35% of
+                                  # a 1-session move, which failed every monthly-expiry hedge intraday)
 ST_SWING_MIN_DTE = 7              # swing ideas need 7+ calendar days to expiry
 DH_BAND = 0.25                    # delta-hedged ideas: hedge when |net delta| > 0.25 per lot of the structure
 INDEX_IDEA_SESSIONS = 5           # swing ideas: time exit after 5 sessions (or the day before expiry)

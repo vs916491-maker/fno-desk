@@ -1865,7 +1865,7 @@ function viewReadme(app) {
         ["Option buying (delta 0.55)", "A direction; IV not rich and not falling", "Stop 30% of the premium (intraday 25%), target 1.5× that"],
         ["Debit spread (buy 0.55, sell 0.25)", "A direction; best when Moderate or IV is rich", "Stop 40% of the debit, target 1.5× that (max 90% of the width)"],
         ["Credit spread (sell 0.30, buy 0.12)", "A direction; IV not cheap and not expanding; credit ≥ 20% of the width; short strike behind the gamma wall", "Take 50% of the credit; stop at a loss of 1× the credit"],
-        ["Futures + protective option (0.30)", "A direction, mainly Strong; hedge ≤ 35% of the expected move", "Stop on spot 0.6× (intraday 0.5×) the expected move, target 1.5× that"],
+        ["Futures + protective option (0.30)", "A direction, mainly Strong; the hedge's time decay over the hold (1 day intraday, 7 days swing) ≤ 15% of the expected move", "Stop on spot 0.6× (intraday 0.5×) the expected move, target 1.5× that"],
         ["Futures + covered option (0.30)", "A direction with rich IV, not expanding", "Same spot stop / target"],
         ["Iron condor (sell 0.20, wings 0.07)", "No direction; IV not cheap, not expanding; no gamma breakout", "Take 50% of the credit; stop at 1× the credit"],
         ["Short strangle + wings, delta-hedged (0.25 / 0.05)", "No direction; IV rich, not expanding; no breakout", "As the condor; hedge with futures when |net delta| > 0.25 per lot"],
@@ -1873,6 +1873,7 @@ function viewReadme(app) {
       ]),
       list([
         "Every idea shows its legs with delta, net debit or credit, position Greeks per lot, maximum profit and loss and breakevens at expiry, and its checks. Ideas are ranked by fit; \"Best fit\" is the top one that passes. SENSEX futures legs use a synthetic future (ATM call bought, put sold), since there is no public SENSEX futures feed.",
+        "Directional ideas fail when the OI wall in their way (largest call OI above for longs, largest put OI below for shorts) sits before the target. Gamma walls only set the regime: they hug spot, so they would block almost every target (changed 23 Nov 2026).",
         "Swing needs 7+ days to expiry; time exit after 5 sessions or the day before expiry. Intraday squares off by 3:15 pm; after 2 pm new intraday ideas fail the time check.",
         "The old 5-factor OI/PCR score is retired here (it lagged because every factor measured positioning, which follows price). The intraday trend scale on F&O index analysis still uses it.",
         "All numbers are starting values in desk/config.py (EDGE_*, ST_*, DH_*, VIX_*, IVRV_*); the Index Track Record is there to test them.",
