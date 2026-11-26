@@ -791,6 +791,25 @@ async function greeksHist(sym, expiry, since) {
    reject_top    spot came within 0.12% of the call wall, then fell back 0.10% or more by the next snapshot
    break_down / reject_bottom: the mirror at the put wall. Shown on the chart only; no rule uses them. */
 const WALL_TOUCH = 0.0012, WALL_TURN = 0.0010;
+/* Sticky walls for the chart (26 Nov 2026, his request after NIFTY's put wall jumped 25,800 -> 25,500 -> 25,800
+   whenever spot dipped a few points under 25,800). The engine picks walls strictly above / below spot each snapshot;
+   on the chart only, a wall that spot has crossed by less than WALL_STICK is kept until spot is clearly past it.
+   Display only: greeks_hist and the Suggested-index-trades engine keep the raw walls. */
+const WALL_STICK = 0.003;
+function stickyWalls(rows) {
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = { ...rows[i] }, p = out[i - 1], sp = +r.spot;
+    const same = p && String(p.ts).slice(0, 10) === String(r.ts).slice(0, 10);
+    if (same && isNum(sp)) {
+      const pw = +p.put_wall, cw = +p.call_wall;
+      if (isNum(pw) && pw && sp < pw && sp >= pw * (1 - WALL_STICK) && !(+r.put_wall >= pw)) r.put_wall = pw;
+      if (isNum(cw) && cw && sp > cw && sp <= cw * (1 + WALL_STICK) && !(+r.call_wall <= cw)) r.call_wall = cw;
+    }
+    out.push(r);
+  }
+  return out;
+}
 function wallEvents(rows) {
   const out = [], num = (v) => (isNum(+v) && v !== null ? +v : null);
   for (let i = 2; i < rows.length; i++) {
@@ -816,6 +835,7 @@ function greeksTrend(sym, expiry, rows, err) {
   if (err) return h("section", null, head, h("div", { class: "banner" }, `Could not load: ${err}`));
   if (!rows.length) return h("section", null, head, h("div", { class: "filters" }, seg),
     h("p", { class: "empty" }, "No Greeks readings for this expiry yet: they start with the first 15-minute snapshot after supabase/013_index_greeks.sql is run."));
+  rows = stickyWalls(rows);
   const xs = rows.map((r) => r.ts);
   const col = (k) => rows.map((r) => (isNum(r[k]) ? +r[k] : null));
   const last = rows[rows.length - 1], first = rows[0];
@@ -830,7 +850,7 @@ function greeksTrend(sym, expiry, rows, err) {
     events.slice(-6).reverse().map((e, k) => h("span", null, k ? " · " : "", `${when(e.ts)} ${evStyle[e.kind][2].toLowerCase()} ${fmt0(e.level)}`))) :
     h("p", { class: "note", style: "margin-top:8px" }, "No wall breaks or rejections in this range.");
   const charts = h("div", { class: "charts" },
-    chartCard("Spot and gamma walls", "Call wall = largest call gamma × OI above spot (ceiling); put wall = the same below (floor); pin = largest total. ▲▼ = spot held beyond the earlier wall for 2 snapshots (breakout); ○ = touched a wall and turned back.",
+    chartCard("Spot and gamma walls", "Call wall = largest call gamma × OI above spot (ceiling); put wall = the same below (floor); pin = largest total. A wall spot has crossed by less than 0.3% is kept until spot is clearly past it. ▲▼ = spot held beyond the earlier wall for 2 snapshots (breakout); ○ = touched a wall and turned back.",
       timeChart({ ...base, series: [{ name: "Spot", values: col("spot"), color: cSpot }, { name: "Call wall", values: col("call_wall"), color: cCall },
         { name: "Put wall", values: col("put_wall"), color: cPut }, { name: "Pin", values: col("pin"), color: cPin }], fmt: (v) => fmt0(v), markers }),
       legend([["Spot", cSpot], ["Call wall", cCall], ["Put wall", cPut], ["Pin", cPin]]),
@@ -1843,7 +1863,7 @@ function viewReadme(app) {
         "Black-76 on each expiry's forward price. Forward from put-call parity on the strikes nearest spot (F = K + (call − put) ÷ discount), so no dividend guess is needed and SENSEX works without a futures feed; the futures price, then spot, are fall-backs.",
         "Time to expiry to 3:30 pm on expiry day (never under 15 minutes). One IV per strike, solved from the out-of-the-money option's LTP (calls at and above the forward, puts below); stale or missing prices are filled from the neighbours. Delta, gamma, theta (points per day) and vega (points per vol point) follow.",
         "Chain readings: ATM IV; 25-delta skew (put IV − call IV at delta 0.25); call and put gamma walls (largest gamma × OI above / below the forward) and the pin strike; writers' net delta (all open OI read as written, −1 to +1).",
-        "Gamma walls are picked around spot each snapshot (call wall above, put wall below). A breakout is spot beyond the wall as it stood earlier: 60 minutes ago intraday, the previous session's last reading for swing. On the Option chain chart: ▲/▼ = spot held beyond the wall of 2 snapshots earlier for 2 snapshots (30 minutes); ○ = spot came within 0.12% of a wall and turned back 0.10% or more by the next snapshot. The chart markers are for reading only; no rule uses them.",
+        "Gamma walls are picked around spot each snapshot (call wall above, put wall below). A breakout is spot beyond the wall as it stood earlier: 60 minutes ago intraday, the previous session's last reading for swing. On the Option chain chart: ▲/▼ = spot held beyond the wall of 2 snapshots earlier for 2 snapshots (30 minutes); ○ = spot came within 0.12% of a wall and turned back 0.10% or more by the next snapshot. The chart markers are for reading only; no rule uses them. On the chart only (26 Nov 2026), a wall that spot has crossed by less than 0.3% is kept (\"sticky\") until spot is clearly past it, so a dip of a few points under a wall does not make the line jump to the next strike; the engine still uses the raw walls.",
         "Option chain tab, Greeks trend (22 Nov 2026): for the chosen index and expiry, the latest session or the last 5 sessions of spot with the gamma walls and pin, ATM IV with India VIX, the 25-delta put skew, and writers' net delta (table greeks_hist, every 15 minutes).",
       ]),
       h("h3", { class: "readme-h" }, "2. Direction score (−100 to +100)"),
